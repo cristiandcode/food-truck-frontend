@@ -3,22 +3,31 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+
 const connectDB = require("./src/config/db");
+const saleRoutes = require("./src/routes/saleRoutes");
 
 const app = express();
 
+// Configuración general
 app.use(cors());
 app.use(express.json());
 
+// Ruta principal
 app.get("/", (req, res) => {
   res.json({
     message: "Lubinin API funcionando correctamente",
-    status: "OK"
+    status: "OK",
   });
 });
 
+// Rutas de ventas
+app.use("/api/sales", saleRoutes);
+
+// Puerto del servidor
 const PORT = process.env.PORT || 5000;
 
+// Iniciar servidor y conectar MongoDB
 const startServer = async () => {
   try {
     await connectDB();
