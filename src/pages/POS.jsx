@@ -1,7 +1,6 @@
 
 import { useRef, useState } from 'react'
 
-import Topbar from '../components/layout/Topbar'
 import CategoryTabs from '../components/pos/CategoryTabs'
 import ProductGrid from '../components/pos/ProductGrid'
 import OrderPanel from '../components/pos/OrderPanel'
@@ -9,12 +8,10 @@ import CheckoutModal from '../components/pos/CheckoutModal'
 import SaleSuccessModal from '../components/pos/SaleSuccessModal'
 
 import { categories } from '../data/categories'
-import { products } from '../data/products'
 import { useCart } from '../hooks/useCart'
 
 const STORAGE_KEY = 'lubinin_sales'
 
-// Recuperar las ventas guardadas
 function getSavedSales() {
   try {
     const savedSales = localStorage.getItem(STORAGE_KEY)
@@ -30,11 +27,10 @@ function getSavedSales() {
   }
 }
 
-function POS() {
+function POS({ products }) {
   const [activeCategory, setActiveCategory] = useState('all')
   const [showCheckout, setShowCheckout] = useState(false)
   const [completedSale, setCompletedSale] = useState(null)
-  const [sales, setSales] = useState(getSavedSales)
   const [storageError, setStorageError] = useState('')
 
   const isProcessing = useRef(false)
@@ -48,8 +44,13 @@ function POS() {
     total,
   } = useCart()
 
+  // Mostrar solamente productos activos
+  const activeProducts = products.filter(
+    (product) => product.active !== false
+  )
+
   // Filtrar productos por categoría
-  const filteredProducts = products.filter(
+  const filteredProducts = activeProducts.filter(
     (product) =>
       activeCategory === 'all' ||
       product.category === activeCategory
@@ -71,10 +72,8 @@ function POS() {
     setStorageError('')
 
     try {
-      // Recuperar las ventas actuales del almacenamiento
       const currentSales = getSavedSales()
 
-      // Calcular el siguiente número de venta
       const nextSaleNumber =
         currentSales.reduce(
           (highest, sale) =>
@@ -82,14 +81,12 @@ function POS() {
           0
         ) + 1
 
-      // Calcular el total en céntimos
       const totalCents = cart.reduce(
         (sum, item) =>
           sum + Math.round(item.price * 100) * item.quantity,
         0
       )
 
-      // Crear el registro de venta
       const sale = {
         id: `${Date.now()}-${nextSaleNumber}`,
         saleNumber: nextSaleNumber,
@@ -109,16 +106,13 @@ function POS() {
         },
       }
 
-      // Añadir la nueva venta al historial
       const updatedSales = [sale, ...currentSales]
 
-      // Guardar en localStorage
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify(updatedSales)
       )
 
-      // Verificar que se haya guardado correctamente
       const verification = localStorage.getItem(STORAGE_KEY)
 
       if (!verification) {
@@ -134,8 +128,6 @@ function POS() {
         throw new Error('La venta no aparece en el almacenamiento.')
       }
 
-      // Actualizar la aplicación después de guardar correctamente
-      setSales(updatedSales)
       setCompletedSale(sale)
 
       clearCart()
@@ -143,7 +135,6 @@ function POS() {
 
       console.log('Venta guardada correctamente:', sale)
       console.log('Total de ventas guardadas:', updatedSales.length)
-      console.log('LocalStorage:', localStorage.getItem(STORAGE_KEY))
 
     } catch (error) {
       console.error('Error al guardar la venta:', error)
@@ -164,9 +155,7 @@ function POS() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f3ee] text-[#26332d]">
-
-      <Topbar />
+    <div className="min-h-[calc(100vh-80px)]">
 
       <main className="grid min-h-[calc(100vh-80px)] grid-cols-1 lg:grid-cols-[1fr_390px]">
 
