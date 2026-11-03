@@ -12,6 +12,7 @@ import { useCart } from '../hooks/useCart'
 
 const STORAGE_KEY = 'lubinin_sales'
 
+// Recuperar las ventas guardadas
 function getSavedSales() {
   try {
     const savedSales = localStorage.getItem(STORAGE_KEY)
@@ -72,8 +73,10 @@ function POS({ products }) {
     setStorageError('')
 
     try {
+      // Recuperar las ventas actuales del almacenamiento
       const currentSales = getSavedSales()
 
+      // Calcular el siguiente número de venta
       const nextSaleNumber =
         currentSales.reduce(
           (highest, sale) =>
@@ -81,17 +84,20 @@ function POS({ products }) {
           0
         ) + 1
 
+      // Calcular el total en céntimos
       const totalCents = cart.reduce(
         (sum, item) =>
           sum + Math.round(item.price * 100) * item.quantity,
         0
       )
 
+      // Crear el registro de venta
       const sale = {
         id: `${Date.now()}-${nextSaleNumber}`,
         saleNumber: nextSaleNumber,
         date: new Date().toISOString(),
 
+        // Guardar una copia de los productos y sus precios
         items: cart.map((item) => ({
           ...item,
           price: Number(item.price.toFixed(2)),
@@ -106,13 +112,16 @@ function POS({ products }) {
         },
       }
 
+      // Añadir la nueva venta al historial
       const updatedSales = [sale, ...currentSales]
 
+      // Guardar en localStorage
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify(updatedSales)
       )
 
+      // Verificar que se haya guardado correctamente
       const verification = localStorage.getItem(STORAGE_KEY)
 
       if (!verification) {
@@ -128,6 +137,7 @@ function POS({ products }) {
         throw new Error('La venta no aparece en el almacenamiento.')
       }
 
+      // Actualizar la aplicación después de guardar correctamente
       setCompletedSale(sale)
 
       clearCart()
@@ -135,6 +145,7 @@ function POS({ products }) {
 
       console.log('Venta guardada correctamente:', sale)
       console.log('Total de ventas guardadas:', updatedSales.length)
+      console.log('LocalStorage:', localStorage.getItem(STORAGE_KEY))
 
     } catch (error) {
       console.error('Error al guardar la venta:', error)

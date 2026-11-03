@@ -3,6 +3,7 @@ function Topbar({ activePage, onNavigate }) {
   const navigationItems = [
     { id: 'pos', label: 'TPV', icon: '🛒' },
     { id: 'sales', label: 'Ventas', icon: '📋' },
+    { id: 'products', label: 'Productos', icon: '📦' },
   ]
 
   return (
@@ -26,7 +27,7 @@ function Topbar({ activePage, onNavigate }) {
             key={item.id}
             type="button"
             onClick={() => onNavigate(item.id)}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition sm:flex-none ${
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition sm:flex-none ${
               activePage === item.id
                 ? 'bg-[#26332d] text-white shadow-sm'
                 : 'bg-[#f5f3ee] text-[#66685f] hover:bg-[#eeece5]'
