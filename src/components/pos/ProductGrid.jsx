@@ -1,8 +1,13 @@
+
 import ProductCard from './ProductCard'
 
 function ProductGrid({ products, onAdd }) {
   if (products.length === 0) {
-    return <p className="text-sm text-gray-500">No hay productos en esta categoría.</p>
+    return (
+      <p className="text-sm text-gray-500">
+        No hay productos en esta categoría.
+      </p>
+    )
   }
 
   return (

@@ -1,3 +1,4 @@
+
 export const products = [
   { id: 1, name: 'Hamburguesa clásica', price: 5, category: 'burgers', emoji: '🍔' },
   { id: 2, name: 'Hamburguesa completa', price: 6, category: 'burgers', emoji: '🍔' },
