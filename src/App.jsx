@@ -1,16 +1,9 @@
 
 import './index.css'
+import POS from './pages/POS'
 
 function App() {
-  
-
-  return (
-    <>
-      <section>
-        <h1 className='text-center font-bold'>Hola Mundo</h1>
-      </section>
-    </>
-  )
+  return <POS />
 }
 
 export default App
