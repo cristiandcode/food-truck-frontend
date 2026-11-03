@@ -1,0 +1,111 @@
+
+const Sale = require("../models/Sale");
+
+// Registrar una venta
+const createSale = async (req, res) => {
+  try {
+    const saleData = req.body;
+
+    // Aceptamos el identificador original del TPV (id)
+    // o el nombre utilizado por el backend (clientSaleId).
+    const clientSaleId = saleData.clientSaleId || saleData.id;
+
+    if (!clientSaleId) {
+      return res.status(400).json({
+        message: "La venta debe incluir un identificador único.",
+      });
+    }
+
+    // Comprobar si la venta ya existe.
+    // Esto permite reintentar una sincronización sin duplicarla.
+    const existingSale = await Sale.findOne({ clientSaleId });
+
+    if (existingSale) {
+      return res.status(200).json({
+        message: "La venta ya estaba registrada.",
+        duplicated: true,
+        sale: existingSale,
+      });
+    }
+
+    // Preparar los datos para MongoDB.
+    // Se conserva la fecha original de la venta.
+    const newSale = new Sale({
+      ...saleData,
+      clientSaleId,
+    });
+
+    const savedSale = await newSale.save();
+
+    return res.status(201).json({
+      message: "Venta registrada correctamente.",
+      duplicated: false,
+      sale: savedSale,
+    });
+  } catch (error) {
+    // Protección adicional ante dos peticiones simultáneas
+    // con el mismo identificador.
+    if (error.code === 11000) {
+      try {
+        const clientSaleId =
+          req.body.clientSaleId || req.body.id;
+
+        const existingSale = await Sale.findOne({
+          clientSaleId,
+        });
+
+        if (existingSale) {
+          return res.status(200).json({
+            message: "La venta ya estaba registrada.",
+            duplicated: true,
+            sale: existingSale,
+          });
+        }
+      } catch (lookupError) {
+        console.error(
+          "Error buscando la venta duplicada:",
+          lookupError.message
+        );
+      }
+    }
+
+    console.error("Error registrando la venta:", error.message);
+
+    if (error.name === "ValidationError" || error.name === "CastError") {
+      return res.status(400).json({
+        message: "Los datos de la venta no son válidos.",
+        error: error.message,
+      });
+    }
+
+    return res.status(500).json({
+      message: "Error interno al registrar la venta.",
+    });
+  }
+};
+
+// Consultar el historial de ventas
+const getSales = async (req, res) => {
+  try {
+    const sales = await Sale.find().sort({
+      date: -1,
+      createdAt: -1,
+    });
+
+    return res.status(200).json({
+      total: sales.length,
+      sales,
+    });
+  } catch (error) {
+    console.error("Error consultando las ventas:", error.message);
+
+    return res.status(500).json({
+      message: "Error interno al consultar las ventas.",
+    });
+  }
+};
+
+module.exports = {
+  createSale,
+  getSales,
+};
