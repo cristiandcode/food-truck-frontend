@@ -68,8 +68,6 @@ const saleSchema = new mongoose.Schema(
     clientSaleId: {
       type: String,
       required: true,
-      unique: true,
-      index: true,
     },
 
     saleNumber: {
@@ -78,7 +76,7 @@ const saleSchema = new mongoose.Schema(
       min: 1,
     },
 
-    // Fecha original de la operación
+    // Fecha y hora originales de la operación
     date: {
       type: Date,
       required: true,
@@ -121,9 +119,8 @@ const saleSchema = new mongoose.Schema(
   }
 );
 
-// El identificador de cada venta debe ser único.
-// Esto permitirá evitar duplicados cuando se reintente
-// una sincronización después de perder Internet.
+// Evita registrar dos veces la misma venta
+// cuando se reintenta una sincronización.
 saleSchema.index(
   { clientSaleId: 1 },
   { unique: true }
