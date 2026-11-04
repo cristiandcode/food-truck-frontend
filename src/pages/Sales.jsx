@@ -1,4 +1,7 @@
-import { useMemo, useState } from 'react'
+
+import { useEffect, useMemo, useState } from 'react'
+
+import { getRemoteSales } from '../services/salesService'
 
 const STORAGE_KEY = 'lubinin_sales'
 
@@ -15,6 +18,42 @@ function getSavedSales() {
     console.error('Error al recuperar las ventas:', error)
     return []
   }
+}
+
+// Combinar ventas locales y remotas sin duplicar operaciones
+function mergeSales(localSales, remoteSales) {
+  const salesMap = new Map()
+
+  // Primero incorporar las ventas locales
+  localSales.forEach((sale) => {
+    const saleId = sale.id || sale.clientSaleId
+
+    if (!saleId) return
+
+    salesMap.set(String(saleId), {
+      ...sale,
+      id: String(saleId),
+    })
+  })
+
+  // Incorporar las ventas de MongoDB
+  remoteSales.forEach((sale) => {
+    const saleId = sale.clientSaleId || sale.id
+
+    if (!saleId) return
+
+    const normalizedId = String(saleId)
+    const localSale = salesMap.get(normalizedId)
+
+    salesMap.set(normalizedId, {
+      ...sale,
+      ...localSale,
+      id: normalizedId,
+      syncStatus: 'synced',
+    })
+  })
+
+  return Array.from(salesMap.values())
 }
 
 function formatPrice(price) {
@@ -84,9 +123,46 @@ function Sales() {
 
   const [selectedSale, setSelectedSale] = useState(null)
 
-  const refreshSales = () => {
-    setSales(getSavedSales())
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  // Recuperar ventas locales y consultar MongoDB
+  const refreshSales = async () => {
+    const localSales = getSavedSales()
+
+    // Mostrar primero las ventas locales disponibles
+    setSales(localSales)
+    setIsRefreshing(true)
+
+    try {
+      const remoteSales = await getRemoteSales()
+
+      const combinedSales = mergeSales(
+        localSales,
+        remoteSales
+      )
+
+      setSales(combinedSales)
+
+      console.log('Historial actualizado correctamente.')
+      console.log('Ventas locales:', localSales.length)
+      console.log('Ventas remotas:', remoteSales.length)
+      console.log('Ventas unificadas:', combinedSales.length)
+
+    } catch (error) {
+      console.error('Error consultando las ventas remotas:', error)
+
+      // Si falla MongoDB, mantener el historial local
+      setSales(localSales)
+
+    } finally {
+      setIsRefreshing(false)
+    }
   }
+
+  // Actualizar el historial al abrir la sección
+  useEffect(() => {
+    refreshSales()
+  }, [])
 
   // Filtrar ventas según el período seleccionado
   const filteredSales = useMemo(() => {
@@ -292,9 +368,10 @@ function Sales() {
         <button
           type="button"
           onClick={refreshSales}
-          className="rounded-xl border border-[#e8e4da] bg-white px-4 py-3 text-sm font-semibold transition hover:bg-[#f5f3ee]"
+          disabled={isRefreshing}
+          className="rounded-xl border border-[#e8e4da] bg-white px-4 py-3 text-sm font-semibold transition hover:bg-[#f5f3ee] disabled:cursor-wait disabled:opacity-60"
         >
-          ↻ Actualizar
+          {isRefreshing ? 'Actualizando...' : '↻ Actualizar'}
         </button>
       </div>
 
