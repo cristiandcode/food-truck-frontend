@@ -1,5 +1,5 @@
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import CategoryTabs from '../components/pos/CategoryTabs'
 import ProductGrid from '../components/pos/ProductGrid'
@@ -9,7 +9,10 @@ import SaleSuccessModal from '../components/pos/SaleSuccessModal'
 
 import { categories } from '../data/categories'
 import { useCart } from '../hooks/useCart'
-import { syncSale } from '../services/syncService'
+import {
+  syncSale,
+  syncPendingSales,
+} from '../services/syncService'
 
 const STORAGE_KEY = 'lubinin_sales'
 
@@ -45,6 +48,34 @@ function POS({ products }) {
     totalItems,
     total,
   } = useCart()
+
+  // Intentar sincronizar ventas pendientes al abrir el TPV
+  useEffect(() => {
+    const handleSyncPending = async () => {
+      const result = await syncPendingSales()
+
+      console.log(
+        'Resultado de sincronización de ventas pendientes:',
+        result
+      )
+    }
+
+    // Sincronización inicial
+    handleSyncPending()
+
+    // Sincronizar cuando vuelve la conexión
+    const handleOnline = () => {
+      console.log('Conexión recuperada. Sincronizando ventas pendientes...')
+
+      handleSyncPending()
+    }
+
+    window.addEventListener('online', handleOnline)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+    }
+  }, [])
 
   // Mostrar solamente productos activos
   const activeProducts = products.filter(

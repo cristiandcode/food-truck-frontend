@@ -3,6 +3,9 @@ import { createSale } from './salesService'
 
 const STORAGE_KEY = 'lubinin_sales'
 
+// Evitar que una misma venta se sincronice simultáneamente
+const salesInProgress = new Set()
+
 // Recuperar ventas guardadas localmente
 function getLocalSales() {
   const savedSales = localStorage.getItem(STORAGE_KEY)
@@ -48,12 +51,23 @@ export async function syncSale(sale) {
     }
   }
 
+  // Evitar sincronizaciones simultáneas de la misma venta
+  if (salesInProgress.has(saleId)) {
+    return {
+      synced: false,
+      reason: 'in-progress',
+    }
+  }
+
+  salesInProgress.add(saleId)
+
   try {
     const response = await createSale({
       ...sale,
       clientSaleId: saleId,
     })
 
+    // Recuperar el historial actualizado antes de modificarlo
     const currentSales = getLocalSales()
 
     const updatedSales = currentSales.map((localSale) => {
@@ -83,6 +97,8 @@ export async function syncSale(sale) {
       reason: 'error',
       error,
     }
+  } finally {
+    salesInProgress.delete(saleId)
   }
 }
 
@@ -112,11 +128,9 @@ export async function syncPendingSales() {
       }
     }
 
-    const remainingSales = getPendingSalesCount()
-
     return {
       synced: syncedCount,
-      pending: remainingSales,
+      pending: getPendingSalesCount(),
     }
   } catch (error) {
     console.error('Error sincronizando ventas pendientes:', error)
