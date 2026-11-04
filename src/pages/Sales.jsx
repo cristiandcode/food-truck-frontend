@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { getRemoteSales } from '../services/salesService'
 
@@ -124,44 +124,112 @@ function Sales() {
   const [selectedSale, setSelectedSale] = useState(null)
 
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
+
+  // Evitar consultas simultáneas
+  const isRefreshingRef = useRef(false)
 
   // Recuperar ventas locales y consultar MongoDB
   const refreshSales = async () => {
-    const localSales = getSavedSales()
+  // Mostrar inmediatamente las ventas locales
+  const initialLocalSales = getSavedSales()
+  setSales(initialLocalSales)
 
-    // Mostrar primero las ventas locales disponibles
-    setSales(localSales)
-    setIsRefreshing(true)
-
-    try {
-      const remoteSales = await getRemoteSales()
-
-      const combinedSales = mergeSales(
-        localSales,
-        remoteSales
-      )
-
-      setSales(combinedSales)
-
-      console.log('Historial actualizado correctamente.')
-      console.log('Ventas locales:', localSales.length)
-      console.log('Ventas remotas:', remoteSales.length)
-      console.log('Ventas unificadas:', combinedSales.length)
-
-    } catch (error) {
-      console.error('Error consultando las ventas remotas:', error)
-
-      // Si falla MongoDB, mantener el historial local
-      setSales(localSales)
-
-    } finally {
-      setIsRefreshing(false)
-    }
+  if (!navigator.onLine) {
+    setIsOnline(false)
+    setIsRefreshing(false)
+    return
   }
 
-  // Actualizar el historial al abrir la sección
+  // Evitar consultas simultáneas
+  if (isRefreshingRef.current) {
+    return
+  }
+
+  isRefreshingRef.current = true
+  setIsRefreshing(true)
+
+  try {
+    const remoteSales = await getRemoteSales()
+
+    // IMPORTANTE:
+    // Volver a leer localStorage después de esperar al servidor.
+    // Así no utilizamos una copia antigua si se registró
+    // una venta mientras se realizaba la consulta.
+    const latestLocalSales = getSavedSales()
+
+    const combinedSales = mergeSales(
+      latestLocalSales,
+      remoteSales
+    )
+
+    setSales(combinedSales)
+    setIsOnline(true)
+
+    console.log('Historial actualizado correctamente.')
+    console.log('Ventas locales:', latestLocalSales.length)
+    console.log('Ventas remotas:', remoteSales.length)
+    console.log('Ventas unificadas:', combinedSales.length)
+
+  } catch (error) {
+    // Si falla el servidor, conservar el historial local
+    const latestLocalSales = getSavedSales()
+
+    setSales(latestLocalSales)
+
+    if (!navigator.onLine) {
+      setIsOnline(false)
+
+      console.warn(
+        'Sin conexión. Se mantiene el historial local.'
+      )
+    } else {
+      console.error(
+        'Error consultando las ventas remotas:',
+        error
+      )
+    }
+
+  } finally {
+    isRefreshingRef.current = false
+    setIsRefreshing(false)
+  }
+}
+
+  // Gestionar la conexión y actualizar el historial
   useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true)
+
+      console.log(
+        'Conexión recuperada. Actualizando historial...'
+      )
+
+      refreshSales()
+    }
+
+    const handleOffline = () => {
+      setIsOnline(false)
+      setIsRefreshing(false)
+
+      // Seguir mostrando las ventas locales
+      setSales(getSavedSales())
+
+      console.log(
+        'Sin conexión. Se mantiene el historial local.'
+      )
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    // Actualizar al abrir la sección
     refreshSales()
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
   }, [])
 
   // Filtrar ventas según el período seleccionado
@@ -363,15 +431,27 @@ function Sales() {
           <p className="mt-1 text-sm text-[#89877e]">
             Consultá las operaciones y los productos vendidos en Lubinin.
           </p>
+
+          <p className={`mt-2 text-xs font-semibold ${
+            isOnline ? 'text-green-700' : 'text-amber-700'
+          }`}>
+            {isOnline
+              ? '● Conectado · Historial sincronizado con el servidor'
+              : '● Sin conexión · Mostrando ventas guardadas en este dispositivo'}
+          </p>
         </div>
 
         <button
           type="button"
           onClick={refreshSales}
-          disabled={isRefreshing}
-          className="rounded-xl border border-[#e8e4da] bg-white px-4 py-3 text-sm font-semibold transition hover:bg-[#f5f3ee] disabled:cursor-wait disabled:opacity-60"
+          disabled={isRefreshing || !isOnline}
+          className="rounded-xl border border-[#e8e4da] bg-white px-4 py-3 text-sm font-semibold transition hover:bg-[#f5f3ee] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isRefreshing ? 'Actualizando...' : '↻ Actualizar'}
+          {!isOnline
+            ? 'Sin conexión'
+            : isRefreshing
+              ? 'Actualizando...'
+              : '↻ Actualizar'}
         </button>
       </div>
 

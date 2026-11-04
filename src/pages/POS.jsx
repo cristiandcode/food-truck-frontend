@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import CategoryTabs from '../components/pos/CategoryTabs'
 import ProductGrid from '../components/pos/ProductGrid'
@@ -9,10 +9,7 @@ import SaleSuccessModal from '../components/pos/SaleSuccessModal'
 
 import { categories } from '../data/categories'
 import { useCart } from '../hooks/useCart'
-import {
-  syncSale,
-  syncPendingSales,
-} from '../services/syncService'
+import { syncSale } from '../services/syncService'
 
 const STORAGE_KEY = 'lubinin_sales'
 
@@ -48,34 +45,6 @@ function POS({ products }) {
     totalItems,
     total,
   } = useCart()
-
-  // Intentar sincronizar ventas pendientes al abrir el TPV
-  useEffect(() => {
-    const handleSyncPending = async () => {
-      const result = await syncPendingSales()
-
-      console.log(
-        'Resultado de sincronización de ventas pendientes:',
-        result
-      )
-    }
-
-    // Sincronización inicial
-    handleSyncPending()
-
-    // Sincronizar cuando vuelve la conexión
-    const handleOnline = () => {
-      console.log('Conexión recuperada. Sincronizando ventas pendientes...')
-
-      handleSyncPending()
-    }
-
-    window.addEventListener('online', handleOnline)
-
-    return () => {
-      window.removeEventListener('online', handleOnline)
-    }
-  }, [])
 
   // Mostrar solamente productos activos
   const activeProducts = products.filter(
@@ -182,11 +151,13 @@ function POS({ products }) {
 
       // Intentar sincronizar después de guardar la venta localmente
       // Si falla, la venta permanece pendiente en el navegador
-      syncSale(sale).then((result) => {
-        console.log('Resultado de sincronización:', result)
-      }).catch((error) => {
-        console.error('Error inesperado al sincronizar:', error)
-      })
+      syncSale(sale)
+        .then((result) => {
+          console.log('Resultado de sincronización:', result)
+        })
+        .catch((error) => {
+          console.error('Error inesperado al sincronizar:', error)
+        })
 
     } catch (error) {
       console.error('Error al guardar la venta:', error)
