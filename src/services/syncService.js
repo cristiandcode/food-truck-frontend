@@ -5,23 +5,29 @@ const STORAGE_KEY = 'lubinin_sales'
 
 // Recuperar ventas guardadas localmente
 function getLocalSales() {
-  try {
-    const savedSales = localStorage.getItem(STORAGE_KEY)
+  const savedSales = localStorage.getItem(STORAGE_KEY)
 
-    if (!savedSales) return []
+  if (!savedSales) return []
 
-    const parsedSales = JSON.parse(savedSales)
+  const parsedSales = JSON.parse(savedSales)
 
-    return Array.isArray(parsedSales) ? parsedSales : []
-  } catch (error) {
-    console.error('Error recuperando ventas locales:', error)
-    return []
+  if (!Array.isArray(parsedSales)) {
+    throw new Error('El historial local de ventas no es válido.')
   }
+
+  return parsedSales
 }
 
 // Guardar las ventas actualizadas
 function saveLocalSales(sales) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(sales))
+}
+
+// Contar ventas pendientes
+function getPendingSalesCount() {
+  return getLocalSales().filter(
+    (sale) => sale.syncStatus !== 'synced'
+  ).length
 }
 
 // Sincronizar una venta concreta
@@ -33,13 +39,20 @@ export async function syncSale(sale) {
     }
   }
 
+  const saleId = sale?.id || sale?.clientSaleId
+
+  if (!saleId) {
+    return {
+      synced: false,
+      reason: 'missing-id',
+    }
+  }
+
   try {
     const response = await createSale({
       ...sale,
-      clientSaleId: sale.id || sale.clientSaleId,
+      clientSaleId: saleId,
     })
-
-    const saleId = sale.id || sale.clientSaleId
 
     const currentSales = getLocalSales()
 
@@ -78,32 +91,40 @@ export async function syncPendingSales() {
   if (!navigator.onLine) {
     return {
       synced: 0,
-      pending: getLocalSales().length,
+      pending: getPendingSalesCount(),
     }
   }
 
-  const sales = getLocalSales()
+  try {
+    const sales = getLocalSales()
 
-  const pendingSales = sales.filter(
-    (sale) => sale.syncStatus !== 'synced'
-  )
+    const pendingSales = sales.filter(
+      (sale) => sale.syncStatus !== 'synced'
+    )
 
-  let syncedCount = 0
+    let syncedCount = 0
 
-  for (const sale of pendingSales) {
-    const result = await syncSale(sale)
+    for (const sale of pendingSales) {
+      const result = await syncSale(sale)
 
-    if (result.synced) {
-      syncedCount += 1
+      if (result.synced) {
+        syncedCount += 1
+      }
     }
-  }
 
-  const remainingSales = getLocalSales().filter(
-    (sale) => sale.syncStatus !== 'synced'
-  )
+    const remainingSales = getPendingSalesCount()
 
-  return {
-    synced: syncedCount,
-    pending: remainingSales.length,
+    return {
+      synced: syncedCount,
+      pending: remainingSales,
+    }
+  } catch (error) {
+    console.error('Error sincronizando ventas pendientes:', error)
+
+    return {
+      synced: 0,
+      pending: null,
+      error,
+    }
   }
 }

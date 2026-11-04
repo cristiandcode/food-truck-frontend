@@ -9,6 +9,7 @@ import SaleSuccessModal from '../components/pos/SaleSuccessModal'
 
 import { categories } from '../data/categories'
 import { useCart } from '../hooks/useCart'
+import { syncSale } from '../services/syncService'
 
 const STORAGE_KEY = 'lubinin_sales'
 
@@ -95,6 +96,7 @@ function POS({ products }) {
       const sale = {
         id: `${Date.now()}-${nextSaleNumber}`,
         saleNumber: nextSaleNumber,
+        syncStatus: 'pending',
         date: new Date().toISOString(),
 
         // Guardar una copia de los productos y sus precios
@@ -146,6 +148,14 @@ function POS({ products }) {
       console.log('Venta guardada correctamente:', sale)
       console.log('Total de ventas guardadas:', updatedSales.length)
       console.log('LocalStorage:', localStorage.getItem(STORAGE_KEY))
+
+      // Intentar sincronizar después de guardar la venta localmente
+      // Si falla, la venta permanece pendiente en el navegador
+      syncSale(sale).then((result) => {
+        console.log('Resultado de sincronización:', result)
+      }).catch((error) => {
+        console.error('Error inesperado al sincronizar:', error)
+      })
 
     } catch (error) {
       console.error('Error al guardar la venta:', error)
