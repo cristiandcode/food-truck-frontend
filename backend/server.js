@@ -6,6 +6,7 @@ const cors = require("cors");
 
 const connectDB = require("./src/config/db");
 const saleRoutes = require("./src/routes/saleRoutes");
+const productRoutes = require("./src/routes/productRoutes");
 
 const app = express();
 
@@ -23,6 +24,9 @@ app.get("/", (req, res) => {
 
 // Rutas de ventas
 app.use("/api/sales", saleRoutes);
+
+// Rutas de productos
+app.use("/api/products", productRoutes);
 
 // Puerto del servidor
 const PORT = process.env.PORT || 5000;
