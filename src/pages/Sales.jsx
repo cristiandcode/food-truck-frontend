@@ -1,7 +1,7 @@
-
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { getRemoteSales } from '../services/salesService'
+import { retryReviewSale, cancelSale } from '../services/syncService'
 
 const STORAGE_KEY = 'lubinin_sales'
 
@@ -54,6 +54,60 @@ function mergeSales(localSales, remoteSales) {
   })
 
   return Array.from(salesMap.values())
+}
+
+// Una venta cancelada no suma en totales ni informes
+function isCancelled(sale) {
+  return sale?.status === 'cancelled'
+}
+
+// Estado de sincronización de una venta:
+// 'synced', 'review' (rechazada por el servidor) o 'pending'
+function getSyncState(sale) {
+  if (sale.syncStatus === 'synced') return 'synced'
+  if (sale.syncStatus === 'needs-review') return 'review'
+
+  return 'pending'
+}
+
+// Etiqueta de estado (solo para ventas no sincronizadas)
+function SyncBadge({ sale }) {
+  const state = getSyncState(sale)
+
+  if (state === 'synced') return null
+
+  if (state === 'review') {
+    return (
+      <span className="mt-2 inline-flex rounded-md bg-red-100 px-2 py-1 text-xs font-bold text-red-800">
+        ⚠ Requiere revisión
+      </span>
+    )
+  }
+
+  return (
+    <span className="mt-2 inline-flex rounded-md bg-amber-100 px-2 py-1 text-xs font-bold text-amber-800">
+      ⏳ Pendiente de sincronizar
+    </span>
+  )
+}
+
+// Etiqueta de venta cancelada
+function CancelBadge({ sale }) {
+  if (!isCancelled(sale)) return null
+
+  return (
+    <span className="mt-2 inline-flex flex-wrap items-center gap-2">
+      <span className="inline-flex rounded-md bg-gray-200 px-2 py-1 text-xs font-bold text-gray-700">
+        🚫 Cancelada
+      </span>
+
+      {sale.cancelSynced === false && (
+        <span className="inline-flex rounded-md bg-amber-100 px-2 py-1 text-xs font-bold text-amber-800">
+          ⏳ Cancelación pendiente de sincronizar
+        </span>
+      )}
+    </span>
+  )
 }
 
 function formatPrice(price) {
@@ -125,76 +179,143 @@ function Sales() {
 
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const [isRetrying, setIsRetrying] = useState(false)
+
+  // Cancelación de ventas
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const [isCancelling, setIsCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState('')
 
   // Evitar consultas simultáneas
   const isRefreshingRef = useRef(false)
 
+  // Cerrar el detalle de venta y reiniciar la confirmación
+  const closeDetail = () => {
+    setSelectedSale(null)
+    setConfirmCancel(false)
+    setCancelError('')
+  }
+
   // Recuperar ventas locales y consultar MongoDB
   const refreshSales = async () => {
-  // Mostrar inmediatamente las ventas locales
-  const initialLocalSales = getSavedSales()
-  setSales(initialLocalSales)
-
-  if (!navigator.onLine) {
-    setIsOnline(false)
-    setIsRefreshing(false)
-    return
-  }
-
-  // Evitar consultas simultáneas
-  if (isRefreshingRef.current) {
-    return
-  }
-
-  isRefreshingRef.current = true
-  setIsRefreshing(true)
-
-  try {
-    const remoteSales = await getRemoteSales()
-
-    // IMPORTANTE:
-    // Volver a leer localStorage después de esperar al servidor.
-    // Así no utilizamos una copia antigua si se registró
-    // una venta mientras se realizaba la consulta.
-    const latestLocalSales = getSavedSales()
-
-    const combinedSales = mergeSales(
-      latestLocalSales,
-      remoteSales
-    )
-
-    setSales(combinedSales)
-    setIsOnline(true)
-
-    console.log('Historial actualizado correctamente.')
-    console.log('Ventas locales:', latestLocalSales.length)
-    console.log('Ventas remotas:', remoteSales.length)
-    console.log('Ventas unificadas:', combinedSales.length)
-
-  } catch (error) {
-    // Si falla el servidor, conservar el historial local
-    const latestLocalSales = getSavedSales()
-
-    setSales(latestLocalSales)
+    // Mostrar inmediatamente las ventas locales
+    const initialLocalSales = getSavedSales()
+    setSales(initialLocalSales)
 
     if (!navigator.onLine) {
       setIsOnline(false)
-
-      console.warn(
-        'Sin conexión. Se mantiene el historial local.'
-      )
-    } else {
-      console.error(
-        'Error consultando las ventas remotas:',
-        error
-      )
+      setIsRefreshing(false)
+      return
     }
 
-  } finally {
-    isRefreshingRef.current = false
-    setIsRefreshing(false)
+    // Evitar consultas simultáneas
+    if (isRefreshingRef.current) {
+      return
+    }
+
+    isRefreshingRef.current = true
+    setIsRefreshing(true)
+
+    try {
+      const remoteSales = await getRemoteSales()
+
+      // IMPORTANTE:
+      // Volver a leer localStorage después de esperar al servidor.
+      // Así no utilizamos una copia antigua si se registró
+      // una venta mientras se realizaba la consulta.
+      const latestLocalSales = getSavedSales()
+
+      const combinedSales = mergeSales(
+        latestLocalSales,
+        remoteSales
+      )
+
+      setSales(combinedSales)
+      setIsOnline(true)
+
+      console.log('Historial actualizado correctamente.')
+      console.log('Ventas locales:', latestLocalSales.length)
+      console.log('Ventas remotas:', remoteSales.length)
+      console.log('Ventas unificadas:', combinedSales.length)
+
+    } catch (error) {
+      // Si falla el servidor, conservar el historial local
+      const latestLocalSales = getSavedSales()
+
+      setSales(latestLocalSales)
+
+      if (!navigator.onLine) {
+        setIsOnline(false)
+
+        console.warn(
+          'Sin conexión. Se mantiene el historial local.'
+        )
+      } else {
+        console.error(
+          'Error consultando las ventas remotas:',
+          error
+        )
+      }
+
+    } finally {
+      isRefreshingRef.current = false
+      setIsRefreshing(false)
+    }
   }
-}
+
+  // Reintentar manualmente una venta marcada para revisión
+  const handleRetrySale = async (sale) => {
+    if (isRetrying) return
+
+    setIsRetrying(true)
+
+    try {
+      const result = await retryReviewSale(sale.id)
+
+      console.log('Resultado del reintento manual:', result)
+    } catch (error) {
+      console.error('Error en el reintento manual:', error)
+    } finally {
+      setIsRetrying(false)
+      closeDetail()
+      refreshSales()
+    }
+  }
+
+  // Cancelar la venta seleccionada
+  const handleCancelSale = async () => {
+    if (!selectedSale || isCancelling) return
+
+    setIsCancelling(true)
+    setCancelError('')
+
+    let failed = false
+
+    try {
+      const result = await cancelSale(selectedSale)
+
+      console.log('Resultado de la cancelación:', result)
+
+      if (!result?.cancelled) {
+        failed = true
+      }
+    } catch (error) {
+      console.error('Error al cancelar la venta:', error)
+      failed = true
+    }
+
+    setIsCancelling(false)
+
+    if (failed) {
+      setCancelError(
+        'No se pudo cancelar la venta. Intentá nuevamente.'
+      )
+      return
+    }
+
+    closeDetail()
+    refreshSales()
+  }
 
   // Gestionar la conexión y actualizar el historial
   useEffect(() => {
@@ -232,6 +353,21 @@ function Sales() {
     }
   }, [])
 
+  // Contar ventas pendientes y ventas que requieren revisión
+  const { pendingCount, reviewCount } = useMemo(() => {
+    let pending = 0
+    let review = 0
+
+    sales.forEach((sale) => {
+      const state = getSyncState(sale)
+
+      if (state === 'pending') pending += 1
+      if (state === 'review') review += 1
+    })
+
+    return { pendingCount: pending, reviewCount: review }
+  }, [sales])
+
   // Filtrar ventas según el período seleccionado
   const filteredSales = useMemo(() => {
     return sales.filter((sale) => {
@@ -262,14 +398,22 @@ function Sales() {
     endDate,
   ])
 
+  // Ventas que cuentan en totales e informes (sin las canceladas)
+  const activeSales = useMemo(
+    () => filteredSales.filter((sale) => !isCancelled(sale)),
+    [filteredSales]
+  )
+
+  const cancelledCount = filteredSales.length - activeSales.length
+
   // Total facturado
-  const totalAmount = filteredSales.reduce(
+  const totalAmount = activeSales.reduce(
     (sum, sale) => sum + Number(sale.total || 0),
     0
   )
 
   // Total de unidades vendidas
-  const totalUnits = filteredSales.reduce(
+  const totalUnits = activeSales.reduce(
     (sum, sale) =>
       sum +
       getSaleItems(sale).reduce(
@@ -282,16 +426,16 @@ function Sales() {
 
   // Ticket medio
   const averageTicket =
-    filteredSales.length > 0
-      ? totalAmount / filteredSales.length
+    activeSales.length > 0
+      ? totalAmount / activeSales.length
       : 0
 
   // Ventas por método de pago
-  const cashSales = filteredSales.filter(
+  const cashSales = activeSales.filter(
     (sale) => sale.paymentMethod === 'cash'
   )
 
-  const cardSales = filteredSales.filter(
+  const cardSales = activeSales.filter(
     (sale) => sale.paymentMethod === 'card'
   )
 
@@ -309,7 +453,7 @@ function Sales() {
   const productSummary = useMemo(() => {
     const productsMap = {}
 
-    filteredSales.forEach((sale) => {
+    activeSales.forEach((sale) => {
       getSaleItems(sale).forEach((item) => {
         const productKey = String(
           item.id ?? item.name ?? 'producto-sin-identificar'
@@ -336,7 +480,7 @@ function Sales() {
     return Object.values(productsMap).sort(
       (a, b) => b.quantity - a.quantity
     )
-  }, [filteredSales])
+  }, [activeSales])
 
   // Exportar informe de productos a CSV
   const exportProductsCSV = () => {
@@ -439,6 +583,24 @@ function Sales() {
               ? '● Conectado · Historial sincronizado con el servidor'
               : '● Sin conexión · Mostrando ventas guardadas en este dispositivo'}
           </p>
+
+          {pendingCount > 0 && (
+            <p className="mt-1 text-xs font-semibold text-amber-700">
+              ⏳ {pendingCount}{' '}
+              {pendingCount === 1
+                ? 'venta pendiente de sincronizar'
+                : 'ventas pendientes de sincronizar'}
+            </p>
+          )}
+
+          {reviewCount > 0 && (
+            <p className="mt-1 text-xs font-semibold text-red-700">
+              ⚠ {reviewCount}{' '}
+              {reviewCount === 1
+                ? 'venta requiere revisión'
+                : 'ventas requieren revisión'}
+            </p>
+          )}
         </div>
 
         <button
@@ -592,7 +754,7 @@ function Sales() {
           </p>
 
           <p className="mt-2 text-3xl font-extrabold text-[#26332d]">
-            {filteredSales.length}
+            {activeSales.length}
           </p>
         </div>
 
@@ -839,6 +1001,10 @@ function Sales() {
 
           <p className="mt-1 text-sm text-[#89877e]">
             {filteredSales.length} ventas encontradas
+            {cancelledCount > 0 &&
+              ` · ${cancelledCount} ${
+                cancelledCount === 1 ? 'cancelada' : 'canceladas'
+              }`}
           </p>
         </div>
 
@@ -872,6 +1038,8 @@ function Sales() {
                   0
                 )
 
+                const cancelled = isCancelled(sale)
+
                 return (
                   <button
                     key={sale.id}
@@ -882,13 +1050,17 @@ function Sales() {
 
                     <div className="flex min-w-0 items-center gap-4">
 
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#f5f3ee] text-xl">
+                      <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#f5f3ee] text-xl ${
+                        cancelled ? 'opacity-50' : ''
+                      }`}>
                         {sale.paymentMethod === 'cash' ? '💵' : '💳'}
                       </div>
 
                       <div className="min-w-0">
 
-                        <p className="font-bold text-[#26332d]">
+                        <p className={`font-bold text-[#26332d] ${
+                          cancelled ? 'text-[#89877e] line-through' : ''
+                        }`}>
                           Venta #{String(sale.saleNumber).padStart(4, '0')}
                         </p>
 
@@ -900,13 +1072,23 @@ function Sales() {
                           {units} unidades · {sale.paymentMethod === 'cash' ? 'Efectivo' : 'Tarjeta'}
                         </p>
 
+                        <SyncBadge sale={sale} />
+
+                        <div>
+                          <CancelBadge sale={sale} />
+                        </div>
+
                       </div>
 
                     </div>
 
                     <div className="flex shrink-0 items-center gap-3">
 
-                      <span className="text-lg font-extrabold text-[#26332d]">
+                      <span className={`text-lg font-extrabold ${
+                        cancelled
+                          ? 'text-[#a19b8e] line-through'
+                          : 'text-[#26332d]'
+                      }`}>
                         {formatPrice(sale.total)}
                       </span>
 
@@ -929,7 +1111,7 @@ function Sales() {
       {selectedSale && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
-          onClick={() => setSelectedSale(null)}
+          onClick={closeDetail}
         >
 
           <div
@@ -947,17 +1129,73 @@ function Sales() {
                 <p className="mt-1 text-sm text-[#89877e]">
                   {formatDate(selectedSale.date)} · {formatTime(selectedSale.date)}
                 </p>
+
+                <SyncBadge sale={selectedSale} />
+
+                <div>
+                  <CancelBadge sale={selectedSale} />
+                </div>
               </div>
 
               <button
                 type="button"
-                onClick={() => setSelectedSale(null)}
+                onClick={closeDetail}
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-xl text-gray-500 hover:bg-gray-100"
               >
                 ×
               </button>
 
             </div>
+
+            {isCancelled(selectedSale) && (
+              <div className="mb-5 rounded-xl bg-gray-100 p-4 text-sm text-gray-700">
+
+                <p className="font-bold">
+                  Esta venta está cancelada.
+                </p>
+
+                <p className="mt-1">
+                  No suma en los totales ni en los informes.
+                </p>
+
+                {selectedSale.cancelledAt && (
+                  <p className="mt-2 text-xs">
+                    Cancelada el {formatDate(selectedSale.cancelledAt)} a las {formatTime(selectedSale.cancelledAt)}
+                  </p>
+                )}
+
+              </div>
+            )}
+
+            {getSyncState(selectedSale) === 'review' && (
+              <div className="mb-5 rounded-xl bg-red-50 p-4 text-sm text-red-800">
+
+                <p className="font-bold">
+                  El servidor rechazó esta venta.
+                </p>
+
+                <p className="mt-1">
+                  Sigue guardada en este dispositivo y no se ha perdido.
+                  Ya no se reintenta automáticamente.
+                </p>
+
+                {selectedSale.lastSyncError && (
+                  <p className="mt-2 text-xs">
+                    Motivo: {selectedSale.lastSyncError}
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => handleRetrySale(selectedSale)}
+                  disabled={isRetrying || !isOnline}
+                  className="mt-3 rounded-lg bg-red-700 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isRetrying ? 'Reintentando...' : 'Reintentar envío'}
+                </button>
+
+              </div>
+            )}
 
             <div className="mb-5 space-y-3">
 
@@ -1030,7 +1268,9 @@ function Sales() {
                   Total
                 </span>
 
-                <span className="text-xl font-extrabold text-[#26332d]">
+                <span className={`text-xl font-extrabold text-[#26332d] ${
+                  isCancelled(selectedSale) ? 'line-through opacity-60' : ''
+                }`}>
                   {formatPrice(selectedSale.total)}
                 </span>
 
@@ -1038,9 +1278,72 @@ function Sales() {
 
             </div>
 
+            {/* Cancelar venta */}
+            {!isCancelled(selectedSale) && (
+              <div className="mt-5">
+
+                {!confirmCancel ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCancelError('')
+                      setConfirmCancel(true)
+                    }}
+                    className="w-full rounded-xl border border-red-200 bg-white py-3 font-bold text-red-700 transition hover:bg-red-50"
+                  >
+                    Cancelar venta
+                  </button>
+                ) : (
+                  <div className="rounded-xl bg-red-50 p-4 text-sm text-red-800">
+
+                    <p className="font-bold">
+                      ¿Seguro que querés cancelar esta venta?
+                    </p>
+
+                    <p className="mt-1">
+                      Dejará de sumar en los totales. No se puede deshacer.
+                    </p>
+
+                    {cancelError && (
+                      <p className="mt-2 font-semibold">
+                        {cancelError}
+                      </p>
+                    )}
+
+                    <div className="mt-3 flex gap-2">
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmCancel(false)
+                          setCancelError('')
+                        }}
+                        disabled={isCancelling}
+                        className="flex-1 rounded-lg border border-red-200 bg-white px-4 py-2 font-bold text-red-800 transition hover:bg-red-100 disabled:opacity-50"
+                      >
+                        No, volver
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleCancelSale}
+                        disabled={isCancelling}
+                        className="flex-1 rounded-lg bg-red-700 px-4 py-2 font-bold text-white transition hover:bg-red-800 disabled:opacity-50"
+                      >
+                        {isCancelling ? 'Cancelando...' : 'Sí, cancelar venta'}
+                      </button>
+
+                    </div>
+
+                  </div>
+                )}
+
+              </div>
+            )}
+
             <button
               type="button"
-              onClick={() => setSelectedSale(null)}
+              onClick={closeDetail}
               className="mt-5 w-full rounded-xl bg-[#26332d] py-3 font-bold text-white transition hover:bg-[#3c4c42]"
             >
               Cerrar detalle

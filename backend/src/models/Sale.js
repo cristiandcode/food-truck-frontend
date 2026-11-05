@@ -1,4 +1,3 @@
-
 const mongoose = require("mongoose");
 
 // Productos incluidos en una venta
@@ -106,6 +105,20 @@ const saleSchema = new mongoose.Schema(
     paymentDetails: {
       type: paymentDetailsSchema,
       default: () => ({}),
+    },
+
+    // Estado de la venta. Las ventas anteriores no lo tienen
+    // y se consideran completadas.
+    status: {
+      type: String,
+      enum: ["completed", "cancelled"],
+      default: "completed",
+    },
+
+    // Fecha y hora de la cancelación
+    cancelledAt: {
+      type: Date,
+      default: null,
     },
 
     // Identificador del dispositivo que realizó la venta

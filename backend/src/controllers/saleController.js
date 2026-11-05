@@ -1,4 +1,3 @@
-
 const Sale = require("../models/Sale");
 
 // Registrar una venta
@@ -105,7 +104,78 @@ const getSales = async (req, res) => {
   }
 };
 
+// Cancelar una venta (no se borra: se marca como cancelada)
+const cancelSale = async (req, res) => {
+  try {
+    const { clientSaleId } = req.params;
+
+    if (!clientSaleId) {
+      return res.status(400).json({
+        message: "Falta el identificador de la venta.",
+      });
+    }
+
+    // Conservar la fecha original de la cancelación si el TPV la envía
+    // (por ejemplo, si se canceló sin conexión).
+    let cancelledAt = new Date();
+
+    if (req.body && req.body.cancelledAt) {
+      const parsedDate = new Date(req.body.cancelledAt);
+
+      if (!Number.isNaN(parsedDate.getTime())) {
+        cancelledAt = parsedDate;
+      }
+    }
+
+    // Operación atómica: solo cancela si todavía no está cancelada.
+    // Las ventas antiguas sin "status" también coinciden con $ne.
+    const updatedSale = await Sale.findOneAndUpdate(
+      {
+        clientSaleId,
+        status: { $ne: "cancelled" },
+      },
+      {
+        $set: {
+          status: "cancelled",
+          cancelledAt,
+        },
+      },
+      { new: true }
+    );
+
+    if (updatedSale) {
+      return res.status(200).json({
+        message: "Venta cancelada correctamente.",
+        alreadyCancelled: false,
+        sale: updatedSale,
+      });
+    }
+
+    // No se actualizó nada: puede estar ya cancelada o no existir
+    const existingSale = await Sale.findOne({ clientSaleId });
+
+    if (!existingSale) {
+      return res.status(404).json({
+        message: "La venta no existe en el servidor.",
+      });
+    }
+
+    return res.status(200).json({
+      message: "La venta ya estaba cancelada.",
+      alreadyCancelled: true,
+      sale: existingSale,
+    });
+  } catch (error) {
+    console.error("Error cancelando la venta:", error.message);
+
+    return res.status(500).json({
+      message: "Error interno al cancelar la venta.",
+    });
+  }
+};
+
 module.exports = {
   createSale,
   getSales,
+  cancelSale,
 };

@@ -1,4 +1,3 @@
-
 import { useRef, useState } from 'react'
 
 import CategoryTabs from '../components/pos/CategoryTabs'
@@ -26,6 +25,19 @@ function getSavedSales() {
   } catch (error) {
     console.error('Error al recuperar las ventas:', error)
     return []
+  }
+}
+
+// Guardar en la venta solo los datos necesarios del producto
+function toSaleItem(item) {
+  return {
+    id: item.id,
+    clientProductId: item.clientProductId || `lubinin-${item.id}`,
+    name: item.name,
+    price: Number(Number(item.price).toFixed(2)),
+    category: item.category,
+    emoji: item.emoji,
+    quantity: item.quantity,
   }
 }
 
@@ -99,11 +111,8 @@ function POS({ products }) {
         syncStatus: 'pending',
         date: new Date().toISOString(),
 
-        // Guardar una copia de los productos y sus precios
-        items: cart.map((item) => ({
-          ...item,
-          price: Number(item.price.toFixed(2)),
-        })),
+        // Guardar una copia limpia de los productos y sus precios
+        items: cart.map(toSaleItem),
 
         total: totalCents / 100,
         paymentMethod,
@@ -147,7 +156,6 @@ function POS({ products }) {
 
       console.log('Venta guardada correctamente:', sale)
       console.log('Total de ventas guardadas:', updatedSales.length)
-      console.log('LocalStorage:', localStorage.getItem(STORAGE_KEY))
 
       // Intentar sincronizar después de guardar la venta localmente
       // Si falla, la venta permanece pendiente en el navegador
