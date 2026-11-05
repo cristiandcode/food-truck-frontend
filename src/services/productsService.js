@@ -1,9 +1,15 @@
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+import { authenticatedFetch } from './authService'
+
+const API_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 // Consultar productos de MongoDB
 export async function getRemoteProducts() {
-  const response = await fetch(`${API_URL}/api/products`)
+  const response = await authenticatedFetch(
+    `${API_URL}/api/products`
+  )
+
   const data = await response.json()
 
   if (!response.ok) {
@@ -17,17 +23,20 @@ export async function getRemoteProducts() {
 
 // Crear un producto en MongoDB
 export async function createRemoteProduct(product) {
-  const response = await fetch(`${API_URL}/api/products`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      ...product,
-      clientProductId:
-        product.clientProductId || `lubinin-${product.id}`,
-    }),
-  })
+  const response = await authenticatedFetch(
+    `${API_URL}/api/products`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ...product,
+        clientProductId:
+          product.clientProductId || `lubinin-${product.id}`,
+      }),
+    }
+  )
 
   const data = await response.json()
 
@@ -45,7 +54,7 @@ export async function updateRemoteProduct(product) {
   const clientProductId =
     product.clientProductId || `lubinin-${product.id}`
 
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${API_URL}/api/products/${encodeURIComponent(clientProductId)}`,
     {
       method: 'PUT',
@@ -79,7 +88,7 @@ export async function setRemoteProductActive(
 ) {
   const action = active ? 'activate' : 'deactivate'
 
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${API_URL}/api/products/${encodeURIComponent(clientProductId)}/${action}`,
     {
       method: 'PATCH',

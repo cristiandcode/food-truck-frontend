@@ -18,8 +18,15 @@ import {
   setRemoteProductActive,
 } from './services/productsService'
 
+import {
+  getAuthToken,
+  loginWithPin,
+  logout,
+} from './services/authService'
+
 const PRODUCTS_STORAGE_KEY = 'lubinin_products'
 
+// Normalizar productos para mantener una estructura consistente
 function normalizeProduct(product) {
   return {
     ...product,
@@ -30,6 +37,7 @@ function normalizeProduct(product) {
   }
 }
 
+// Recuperar catálogo local
 function getSavedProducts() {
   try {
     const savedProducts = localStorage.getItem(
@@ -57,6 +65,7 @@ function getSavedProducts() {
   }
 }
 
+// Comprobar si un producto sufrió modificaciones
 function hasProductChanges(previousProduct, product) {
   return (
     previousProduct.name !== product.name ||
@@ -71,9 +80,80 @@ function App() {
   const [activePage, setActivePage] = useState('pos')
   const [products, setProducts] = useState(getSavedProducts)
 
+  // Comprobar si existe un token guardado
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    () => Boolean(getAuthToken())
+  )
+
+  // Estado de la pantalla de acceso
+  const [pin, setPin] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
+
   const isSyncingSales = useRef(false)
   const isSyncingProducts = useRef(false)
   const productsLoadPromise = useRef(null)
+
+  // Detectar cuando el backend informa que la sesión caducó
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      logout()
+      setIsAuthenticated(false)
+      setPin('')
+      setLoginError(
+        'Tu sesión ha caducado. Introduce nuevamente el PIN.'
+      )
+    }
+
+    window.addEventListener(
+      'lubinin:session-expired',
+      handleSessionExpired
+    )
+
+    return () => {
+      window.removeEventListener(
+        'lubinin:session-expired',
+        handleSessionExpired
+      )
+    }
+  }, [])
+
+  // Ingresar mediante PIN
+  const handleLogin = async (event) => {
+    event.preventDefault()
+
+    if (!/^\d{4}$/.test(pin)) {
+      setLoginError('El PIN debe tener exactamente 4 dígitos.')
+      return
+    }
+
+    setIsLoggingIn(true)
+    setLoginError('')
+
+    try {
+      await loginWithPin(pin)
+
+      setPin('')
+      setLoginError('')
+      setIsAuthenticated(true)
+
+      console.log('Acceso autorizado.')
+    } catch (error) {
+      setLoginError(
+        error.message || 'No se pudo validar el PIN.'
+      )
+    } finally {
+      setIsLoggingIn(false)
+    }
+  }
+
+  // Bloquear manualmente el TPV
+  const handleLogout = () => {
+    logout()
+    setPin('')
+    setLoginError('')
+    setIsAuthenticated(false)
+  }
 
   // Guardar catálogo localmente
   useEffect(() => {
@@ -92,7 +172,11 @@ function App() {
 
   // Sincronizar productos pendientes con MongoDB
   const syncPendingProducts = async (productsToSync) => {
-    if (!navigator.onLine || isSyncingProducts.current) {
+    if (
+      !isAuthenticated ||
+      !navigator.onLine ||
+      isSyncingProducts.current
+    ) {
       return
     }
 
@@ -139,8 +223,8 @@ function App() {
           `Producto sincronizado: ${product.name}`
         )
 
-        // Marcar como sincronizado solo si no cambió mientras
-        // se estaba realizando la petición
+        // Marcar como sincronizado solo si no cambió
+        // mientras se estaba realizando la petición
         setProducts((currentProducts) =>
           currentProducts.map((currentProduct) => {
             if (
@@ -174,7 +258,13 @@ function App() {
   }
 
   // Cargar productos desde MongoDB o migrar catálogo local
+  // Esta operación solo se ejecuta después de ingresar con PIN
   useEffect(() => {
+    if (!isAuthenticated) {
+      productsLoadPromise.current = null
+      return
+    }
+
     const loadProducts = async () => {
       if (!navigator.onLine) {
         console.log(
@@ -198,8 +288,7 @@ function App() {
 
           const localProducts = getSavedProducts()
 
-          // Conservar los cambios locales que todavía no
-          // se hayan enviado a MongoDB
+          // Conservar los cambios locales pendientes
           const pendingLocalProducts = localProducts.filter(
             (product) => product.pendingSync
           )
@@ -260,7 +349,7 @@ function App() {
     if (!productsLoadPromise.current) {
       productsLoadPromise.current = loadProducts()
     }
-  }, [])
+  }, [isAuthenticated])
 
   // Guardar cambios del catálogo y sincronizarlos
   const handleProductsChange = (updatedProducts) => {
@@ -298,15 +387,26 @@ function App() {
       return
     }
 
-    syncPendingProducts(normalizedProducts)
+    if (isAuthenticated) {
+      syncPendingProducts(normalizedProducts)
+    }
   }
 
-  // Sincronizar ventas y productos al iniciar y recuperar Internet
+  // Sincronizar ventas y productos al iniciar
+  // y al recuperar Internet, siempre con sesión autorizada
   useEffect(() => {
+    if (!isAuthenticated) {
+      return
+    }
+
     let mounted = true
 
     const handleSync = async () => {
-      if (!navigator.onLine || !mounted) {
+      if (
+        !navigator.onLine ||
+        !mounted ||
+        !isAuthenticated
+      ) {
         return
       }
 
@@ -334,7 +434,7 @@ function App() {
       }
 
       // Sincronizar productos pendientes
-      if (mounted) {
+      if (mounted && isAuthenticated) {
         const localProducts = getSavedProducts()
         await syncPendingProducts(localProducts)
       }
@@ -348,7 +448,7 @@ function App() {
       handleSync()
     }
 
- handleSync()
+    handleSync()
 
     window.addEventListener('online', handleOnline)
 
@@ -360,10 +460,91 @@ function App() {
       clearInterval(retryInterval)
       window.removeEventListener('online', handleOnline)
     }
-  }, [])
+  }, [isAuthenticated])
 
+  // Pantalla de acceso
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#f5f3ee] text-[#26332d] flex items-center justify-center px-4">
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-8">
+          <div className="text-center mb-8">
+            <div className="text-5xl mb-4">🍔</div>
+
+            <h1 className="text-3xl font-bold tracking-tight">
+              LUBININ
+            </h1>
+
+            <p className="text-sm text-gray-500 mt-2">
+              Sistema de gestión y punto de venta
+            </p>
+          </div>
+
+          <form onSubmit={handleLogin}>
+            <label
+              htmlFor="pin"
+              className="block text-sm font-medium mb-2"
+            >
+              Introduce tu PIN de acceso
+            </label>
+
+            <input
+              id="pin"
+              type="password"
+              inputMode="numeric"
+              autoComplete="current-password"
+              maxLength={4}
+              value={pin}
+              onChange={(event) => {
+                setPin(
+                  event.target.value
+                    .replace(/\D/g, '')
+                    .slice(0, 4)
+                )
+                setLoginError('')
+              }}
+              placeholder="••••"
+              className="w-full text-center text-2xl tracking-[0.8em] border border-gray-300 rounded-xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-[#26332d]"
+              disabled={isLoggingIn}
+              autoFocus
+            />
+
+            {loginError && (
+              <p className="text-red-600 text-sm mt-3 text-center">
+                {loginError}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={isLoggingIn || pin.length !== 4}
+              className="w-full mt-6 bg-[#26332d] text-white font-semibold py-3 rounded-xl hover:bg-[#35483e] disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              {isLoggingIn ? 'Verificando...' : 'Ingresar'}
+            </button>
+          </form>
+
+          <p className="text-xs text-gray-400 text-center mt-6">
+            Acceso privado · Food Truck Lubinin
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Aplicación principal
   return (
     <div className="min-h-screen bg-[#f5f3ee] text-[#26332d]">
+      <div className="flex justify-end px-4 pt-3">
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="text-sm font-medium text-gray-600 hover:text-red-600 transition"
+        >
+          <span className="mr-1">🔒</span>
+          Bloquear TPV
+        </button>
+      </div>
+
       <Topbar
         activePage={activePage}
         onNavigate={setActivePage}

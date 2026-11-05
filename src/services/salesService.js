@@ -1,9 +1,13 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+
+import { authenticatedFetch } from './authService'
+
+const API_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 // Tiempo máximo de espera de una petición (ms)
 const REQUEST_TIMEOUT_MS = 15000
 
-// Petición con timeout y lectura segura del JSON
+// Petición con autenticación, timeout y lectura segura del JSON
 async function requestJson(url, options = {}) {
   const controller = new AbortController()
 
@@ -13,7 +17,7 @@ async function requestJson(url, options = {}) {
   )
 
   try {
-    const response = await fetch(url, {
+    const response = await authenticatedFetch(url, {
       ...options,
       signal: controller.signal,
     })
@@ -40,13 +44,16 @@ async function requestJson(url, options = {}) {
 
 // Registrar una venta en MongoDB
 export async function createSale(sale) {
-  const { response, data } = await requestJson(`${API_URL}/api/sales`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(sale),
-  })
+  const { response, data } = await requestJson(
+    `${API_URL}/api/sales`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(sale),
+    }
+  )
 
   if (!response.ok) {
     const error = new Error(
@@ -112,7 +119,9 @@ export async function cancelRemoteSale(clientSaleId, cancelledAt) {
 
 // Consultar todas las ventas de MongoDB
 export async function getRemoteSales() {
-  const { response, data } = await requestJson(`${API_URL}/api/sales`)
+  const { response, data } = await requestJson(
+    `${API_URL}/api/sales`
+  )
 
   if (!response.ok) {
     const error = new Error(

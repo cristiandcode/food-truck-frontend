@@ -1,3 +1,4 @@
+
 import { createSale, cancelRemoteSale } from './salesService'
 
 const STORAGE_KEY = 'lubinin_sales'
@@ -161,6 +162,17 @@ export async function syncSale(sale) {
   } catch (error) {
     console.error('Error sincronizando venta:', error)
 
+    // Si la sesión caducó o no está autorizada, no modificar
+    // la venta local ni registrar un intento de sincronización.
+    // Se conserva pendiente para cuando el usuario vuelva a ingresar.
+    if (error?.status === 401) {
+      return {
+        synced: false,
+        reason: 'unauthorized',
+        error,
+      }
+    }
+
     const permanent = isPermanentError(error)
 
     // Guardar el fallo para consultarlo tras cerrar el navegador.
@@ -217,13 +229,23 @@ async function syncCancellation(saleId) {
   } catch (error) {
     console.error('Error sincronizando cancelación:', error)
 
+    // No modificar la cancelación pendiente si falta autorización.
+    if (error?.status === 401) {
+      return {
+        synced: false,
+        reason: 'unauthorized',
+        error,
+      }
+    }
+
     try {
       if (error?.status === 404) {
         // El servidor no tiene la venta: se vuelve a enviar completa
         // (ya con estado cancelada) en el siguiente ciclo.
         updateLocalSale(saleId, () => ({
           syncStatus: 'pending',
-          lastCancelError: error?.message || 'La venta no existe en el servidor.',
+          lastCancelError:
+            error?.message || 'La venta no existe en el servidor.',
         }))
       } else {
         updateLocalSale(saleId, (localSale) => ({
@@ -372,6 +394,7 @@ export async function syncPendingSales() {
     const pendingSales = sales.filter(isPendingSale)
 
     let syncedCount = 0
+    let unauthorized = false
 
     for (const sale of pendingSales) {
       const result = await syncSale(sale)
@@ -379,13 +402,27 @@ export async function syncPendingSales() {
       if (result.synced) {
         syncedCount += 1
       }
+
+      // Detener el ciclo si la sesión caducó.
+      // El resto de las ventas permanece guardado localmente.
+      if (result.reason === 'unauthorized') {
+        unauthorized = true
+        break
+      }
     }
 
-    // Enviar las cancelaciones pendientes (leyendo el estado más reciente)
-    const salesToCancel = getLocalSales().filter(isCancellationPending)
+    // Enviar las cancelaciones pendientes solamente si seguimos
+    // teniendo una sesión autorizada.
+    if (!unauthorized) {
+      const salesToCancel = getLocalSales().filter(isCancellationPending)
 
-    for (const sale of salesToCancel) {
-      await syncCancellation(getSaleId(sale))
+      for (const sale of salesToCancel) {
+        const result = await syncCancellation(getSaleId(sale))
+
+        if (result.reason === 'unauthorized') {
+          break
+        }
+      }
     }
 
     return {
