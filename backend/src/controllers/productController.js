@@ -12,6 +12,7 @@ const createProduct = async (req, res) => {
       category,
       emoji,
       active,
+      seniorDiscountEligible,
       deviceId,
     } = req.body;
 
@@ -32,6 +33,16 @@ const createProduct = async (req, res) => {
     if (!Number.isInteger(Number(id)) || Number(id) < 1) {
       return res.status(400).json({
         message: "El ID del producto debe ser un número entero positivo.",
+      });
+    }
+
+    // Validar elegibilidad para descuento
+    if (
+      seniorDiscountEligible !== undefined &&
+      typeof seniorDiscountEligible !== "boolean"
+    ) {
+      return res.status(400).json({
+        message: "La elegibilidad para el descuento debe ser verdadera o falsa.",
       });
     }
 
@@ -70,6 +81,10 @@ const createProduct = async (req, res) => {
       category,
       emoji,
       active: active !== undefined ? active : true,
+      seniorDiscountEligible:
+        seniorDiscountEligible !== undefined
+          ? seniorDiscountEligible
+          : false,
       deviceId: deviceId || null,
     });
 
@@ -136,6 +151,7 @@ const updateProduct = async (req, res) => {
       "category",
       "emoji",
       "active",
+      "seniorDiscountEligible",
     ];
 
     const updates = {};
@@ -144,6 +160,16 @@ const updateProduct = async (req, res) => {
       if (req.body[field] !== undefined) {
         updates[field] = req.body[field];
       }
+    }
+
+    // Validar elegibilidad para descuento
+    if (
+      updates.seniorDiscountEligible !== undefined &&
+      typeof updates.seniorDiscountEligible !== "boolean"
+    ) {
+      return res.status(400).json({
+        message: "La elegibilidad para el descuento debe ser verdadera o falsa.",
+      });
     }
 
     if (Object.keys(updates).length === 0) {

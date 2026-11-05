@@ -47,6 +47,12 @@ const productSchema = new mongoose.Schema(
       default: true,
     },
 
+    // Indica si el producto admite el descuento para jubilados y pensionados.
+    seniorDiscountEligible: {
+      type: Boolean,
+      default: false,
+    },
+
     deviceId: {
       type: String,
       default: null,
