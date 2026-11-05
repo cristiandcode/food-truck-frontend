@@ -15,6 +15,7 @@ const emptyForm = {
   price: '',
   category: 'burgers',
   emoji: '🛍️',
+  seniorDiscountEligible: false,
 }
 
 function Products({ products, onProductsChange }) {
@@ -77,6 +78,8 @@ function Products({ products, onProductsChange }) {
       price: String(product.price),
       category: product.category,
       emoji: product.emoji || '🛍️',
+      seniorDiscountEligible:
+        product.seniorDiscountEligible === true,
     })
 
     setFormError('')
@@ -120,6 +123,8 @@ function Products({ products, onProductsChange }) {
               price: Number(price.toFixed(2)),
               category: form.category,
               emoji: form.emoji.trim() || '🛍️',
+              seniorDiscountEligible:
+                form.seniorDiscountEligible === true,
             }
           : product
       )
@@ -140,6 +145,8 @@ function Products({ products, onProductsChange }) {
         category: form.category,
         emoji: form.emoji.trim() || '🛍️',
         active: true,
+        seniorDiscountEligible:
+          form.seniorDiscountEligible === true,
       }
 
       onProductsChange([...products, newProduct])
@@ -327,13 +334,21 @@ function Products({ products, onProductsChange }) {
                         {getCategoryName(product.category)}
                       </p>
 
-                      <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                        isActive
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {isActive ? 'Activo' : 'Inactivo'}
-                      </span>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          isActive
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {isActive ? 'Activo' : 'Inactivo'}
+                        </span>
+
+                        {product.seniorDiscountEligible === true && (
+                          <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                            Admite descuento del 5 %
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -477,6 +492,34 @@ function Products({ products, onProductsChange }) {
                 <p className="mt-1 text-xs text-[#89877e]">
                   Podés utilizar un emoji para identificar el producto en el TPV.
                 </p>
+              </div>
+
+              {/* Elegibilidad para descuento */}
+              <div className="rounded-xl border border-[#e8e4da] bg-[#fcfbf8] p-4">
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={form.seniorDiscountEligible}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        seniorDiscountEligible: event.target.checked,
+                      })
+                    }
+                    className="mt-1 h-4 w-4 accent-[#c18b45]"
+                  />
+
+                  <span>
+                    <span className="block text-sm font-bold text-[#26332d]">
+                      Admite descuento para jubilados y pensionados
+                    </span>
+
+                    <span className="mt-1 block text-xs leading-relaxed text-[#89877e]">
+                      Si activás esta opción, el producto tendrá un descuento
+                      del 5 % cuando se indique que el cliente es jubilado o pensionado.
+                    </span>
+                  </span>
+                </label>
               </div>
 
               {formError && (

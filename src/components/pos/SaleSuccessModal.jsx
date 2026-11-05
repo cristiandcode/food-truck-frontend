@@ -1,8 +1,18 @@
 
 function formatPrice(price) {
-  return price.toLocaleString('es-ES', {
+  return Number(price || 0).toLocaleString('es-ES', {
     style: 'currency',
     currency: 'EUR',
+  })
+}
+
+function formatDate(date) {
+  return new Date(date).toLocaleString('es-ES', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   })
 }
 
@@ -10,102 +20,262 @@ function SaleSuccessModal({ sale, onNewSale }) {
   const paymentLabel =
     sale.paymentMethod === 'cash' ? 'Efectivo' : 'Tarjeta'
 
+  const subtotal = sale.items.reduce(
+    (sum, item) => sum + Number(item.price) * item.quantity,
+    0
+  )
+
+  const handlePrint = () => {
+    window.print()
+  }
+
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-7 text-center shadow-2xl">
+    <>
+      <style>
+        {`
+          @media print {
+            @page {
+              size: 80mm auto;
+              margin: 4mm;
+            }
 
-        {/* Icono de confirmación */}
-        <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-4xl text-green-700">
-          ✓
-        </div>
+            body * {
+              visibility: hidden !important;
+            }
 
-        <h2 className="text-2xl font-extrabold text-[#26332d]">
-          ¡Venta realizada!
-        </h2>
+            #lubinin-ticket,
+            #lubinin-ticket * {
+              visibility: visible !important;
+            }
 
-        <p className="mt-2 text-sm text-[#89877e]">
-          La venta se guardó correctamente.
-        </p>
+            #lubinin-ticket {
+              display: block !important;
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: 100% !important;
+              max-width: none !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              color: #000 !important;
+              background: #fff !important;
+              font-family: monospace !important;
+              font-size: 12px !important;
+            }
 
-        {/* Número de venta */}
-        <div className="mt-6 rounded-xl bg-[#f5f3ee] p-5">
-          <p className="text-sm font-medium text-[#89877e]">
-            Número de venta
-          </p>
+            .no-print {
+              display: none !important;
+            }
+          }
+        `}
+      </style>
 
-          <p className="mt-1 text-2xl font-extrabold text-[#26332d]">
-            #{String(sale.saleNumber).padStart(4, '0')}
-          </p>
+      <div className="fixed inset-0 z-[150] flex items-center justify-center overflow-y-auto bg-black/60 p-4">
+        <div className="w-full max-w-md rounded-2xl bg-white p-7 text-center shadow-2xl">
 
-          <div className="my-4 border-t border-[#e8e4da]" />
+          {/* Confirmación */}
+          <div className="no-print">
+            <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-4xl text-green-700">
+              ✓
+            </div>
 
-          <p className="text-sm text-[#89877e]">
-            Total cobrado
-          </p>
+            <h2 className="text-2xl font-extrabold text-[#26332d]">
+              ¡Venta realizada!
+            </h2>
 
-          <p className="mt-2 text-4xl font-extrabold text-[#26332d]">
-            {formatPrice(sale.total)}
-          </p>
-
-          <div className="mt-4 flex justify-between text-sm">
-            <span className="text-[#89877e]">Método de pago</span>
-            <span className="font-bold">{paymentLabel}</span>
+            <p className="mt-2 text-sm text-[#89877e]">
+              La venta se guardó correctamente.
+            </p>
           </div>
 
-          {sale.paymentMethod === 'cash' && (
-            <>
-              <div className="mt-2 flex justify-between text-sm">
-                <span className="text-[#89877e]">Recibido</span>
-                <span className="font-semibold">
-                  {formatPrice(sale.paymentDetails.received)}
-                </span>
-              </div>
+          {/* Ticket imprimible */}
+          <div
+            id="lubinin-ticket"
+            className="mx-auto mt-5 hidden w-full bg-white text-left text-black"
+          >
+            <div className="text-center">
+              <h2 className="text-xl font-bold">
+                FOOD TRUCK LUBININ
+              </h2>
 
-              <div className="mt-2 flex justify-between text-sm">
-                <span className="text-[#89877e]">Cambio</span>
-                <span className="font-semibold">
-                  {formatPrice(sale.paymentDetails.change)}
-                </span>
-              </div>
-            </>
-          )}
-        </div>
+              <p className="mt-1 text-xs">
+                Ticket de venta
+              </p>
 
-        {/* Productos vendidos */}
-        <div className="mt-5 text-left">
-          <p className="mb-3 text-sm font-bold text-[#26332d]">
-            Productos vendidos
-          </p>
+              <div className="my-3 border-t border-dashed border-black" />
 
-          <div className="max-h-36 space-y-2 overflow-y-auto">
-            {sale.items.map((item) => (
-              <div
-                key={item.id}
-                className="flex justify-between gap-3 text-sm"
-              >
-                <span className="text-[#66685f]">
-                  {item.quantity} × {item.name}
-                </span>
+              <p>
+                Venta: #{String(sale.saleNumber).padStart(4, '0')}
+              </p>
 
-                <span className="shrink-0 font-semibold">
-                  {formatPrice(item.price * item.quantity)}
-                </span>
-              </div>
-            ))}
+              <p>
+                Fecha: {formatDate(sale.date)}
+              </p>
+            </div>
+
+            <div className="my-3 border-t border-dashed border-black" />
+
+            <p className="mb-2 font-bold">
+              DETALLE
+            </p>
+
+            <div className="space-y-2">
+              {sale.items.map((item, index) => (
+                <div key={`${item.id}-${index}`}>
+                  <p className="font-bold">
+                    {item.name}
+                  </p>
+
+                  <div className="flex justify-between gap-2">
+                    <span>
+                      {item.quantity} × {formatPrice(item.price)}
+                    </span>
+
+                    <span>
+                      {formatPrice(item.price * item.quantity)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="my-3 border-t border-dashed border-black" />
+
+            <div className="flex justify-between">
+              <span>Subtotal</span>
+              <span>{formatPrice(subtotal)}</span>
+            </div>
+
+            <div className="mt-2 flex justify-between text-lg font-bold">
+              <span>TOTAL</span>
+              <span>{formatPrice(sale.total)}</span>
+            </div>
+
+            <div className="my-3 border-t border-dashed border-black" />
+
+            <p>
+              Método de pago: {paymentLabel}
+            </p>
+
+            {sale.paymentMethod === 'cash' && (
+              <>
+                <div className="mt-1 flex justify-between">
+                  <span>Recibido</span>
+                  <span>
+                    {formatPrice(sale.paymentDetails.received)}
+                  </span>
+                </div>
+
+                <div className="mt-1 flex justify-between">
+                  <span>Cambio</span>
+                  <span>
+                    {formatPrice(sale.paymentDetails.change)}
+                  </span>
+                </div>
+              </>
+            )}
+
+            <div className="my-3 border-t border-dashed border-black" />
+
+            <p className="text-center font-bold">
+              ¡Gracias por tu compra!
+            </p>
+
+            <p className="mt-1 text-center text-xs">
+              Conservá este ticket como comprobante.
+            </p>
           </div>
+
+          {/* Resumen visible en pantalla */}
+          <div className="no-print">
+            <div className="mt-6 rounded-xl bg-[#f5f3ee] p-5">
+              <p className="text-sm font-medium text-[#89877e]">
+                Número de venta
+              </p>
+
+              <p className="mt-1 text-2xl font-extrabold text-[#26332d]">
+                #{String(sale.saleNumber).padStart(4, '0')}
+              </p>
+
+              <div className="my-4 border-t border-[#e8e4da]" />
+
+              <p className="text-sm text-[#89877e]">
+                Total cobrado
+              </p>
+
+              <p className="mt-2 text-4xl font-extrabold text-[#26332d]">
+                {formatPrice(sale.total)}
+              </p>
+
+              <div className="mt-4 flex justify-between text-sm">
+                <span className="text-[#89877e]">Método de pago</span>
+                <span className="font-bold">{paymentLabel}</span>
+              </div>
+
+              {sale.paymentMethod === 'cash' && (
+                <>
+                  <div className="mt-2 flex justify-between text-sm">
+                    <span className="text-[#89877e]">Recibido</span>
+                    <span className="font-semibold">
+                      {formatPrice(sale.paymentDetails.received)}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 flex justify-between text-sm">
+                    <span className="text-[#89877e]">Cambio</span>
+                    <span className="font-semibold">
+                      {formatPrice(sale.paymentDetails.change)}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="mt-5 text-left">
+              <p className="mb-3 text-sm font-bold text-[#26332d]">
+                Productos vendidos
+              </p>
+
+              <div className="max-h-36 space-y-2 overflow-y-auto">
+                {sale.items.map((item, index) => (
+                  <div
+                    key={`${item.id}-${index}`}
+                    className="flex justify-between gap-3 text-sm"
+                  >
+                    <span className="text-[#66685f]">
+                      {item.quantity} × {item.name}
+                    </span>
+
+                    <span className="shrink-0 font-semibold">
+                      {formatPrice(item.price * item.quantity)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Imprimir */}
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="mt-7 w-full rounded-xl border-2 border-[#c18b45] py-4 font-bold text-[#a97735] transition hover:bg-[#faf5ec] active:scale-[0.99]"
+            >
+              🖨️ IMPRIMIR TICKET
+            </button>
+
+            {/* Nueva venta */}
+            <button
+              type="button"
+              onClick={onNewSale}
+              className="mt-3 w-full rounded-xl bg-[#c18b45] py-4 font-bold text-white transition hover:bg-[#a97735] active:scale-[0.99]"
+            >
+              NUEVA VENTA
+            </button>
+          </div>
+
         </div>
-
-        {/* Nueva venta */}
-        <button
-          type="button"
-          onClick={onNewSale}
-          className="mt-7 w-full rounded-xl bg-[#c18b45] py-4 font-bold text-white transition hover:bg-[#a97735] active:scale-[0.99]"
-        >
-          NUEVA VENTA
-        </button>
-
       </div>
-    </div>
+    </>
   )
 }
 

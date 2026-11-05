@@ -34,6 +34,8 @@ export async function createRemoteProduct(product) {
         ...product,
         clientProductId:
           product.clientProductId || `lubinin-${product.id}`,
+        seniorDiscountEligible:
+          product.seniorDiscountEligible ?? false,
       }),
     }
   )
@@ -66,6 +68,8 @@ export async function updateRemoteProduct(product) {
         price: product.price,
         category: product.category,
         emoji: product.emoji,
+        seniorDiscountEligible:
+          product.seniorDiscountEligible ?? false,
       }),
     }
   )
