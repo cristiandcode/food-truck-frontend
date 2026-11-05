@@ -5,6 +5,7 @@ const Product = require("../models/Product");
 const createProduct = async (req, res) => {
   try {
     const {
+      id,
       clientProductId,
       name,
       price,
@@ -14,33 +15,62 @@ const createProduct = async (req, res) => {
       deviceId,
     } = req.body;
 
-    if (!clientProductId || !name || !category || price === undefined) {
+    // Validar campos obligatorios
+    if (
+      id === undefined ||
+      !clientProductId ||
+      !name ||
+      !category ||
+      price === undefined
+    ) {
       return res.status(400).json({
         message: "Faltan datos obligatorios del producto.",
       });
     }
 
-    // Evitar productos duplicados
+    // Comprobar que el ID numérico sea válido
+    if (!Number.isInteger(Number(id)) || Number(id) < 1) {
+      return res.status(400).json({
+        message: "El ID del producto debe ser un número entero positivo.",
+      });
+    }
+
+    // Comprobar duplicados por ambos identificadores
     const existingProduct = await Product.findOne({
-      clientProductId,
+      $or: [
+        { id: Number(id) },
+        { clientProductId },
+      ],
     });
 
     if (existingProduct) {
-      return res.status(200).json({
-        message: "El producto ya estaba registrado.",
-        duplicated: true,
-        product: existingProduct,
+      // Si ambos identificadores corresponden al mismo producto,
+      // devolvemos el existente sin duplicarlo.
+      if (
+        existingProduct.id === Number(id) &&
+        existingProduct.clientProductId === clientProductId
+      ) {
+        return res.status(200).json({
+          message: "El producto ya estaba registrado.",
+          duplicated: true,
+          product: existingProduct,
+        });
+      }
+
+      return res.status(409).json({
+        message: "El ID numérico o el identificador del producto ya existe.",
       });
     }
 
     const newProduct = new Product({
+      id: Number(id),
       clientProductId,
       name,
       price,
       category,
       emoji,
-      active,
-      deviceId,
+      active: active !== undefined ? active : true,
+      deviceId: deviceId || null,
     });
 
     const savedProduct = await newProduct.save();
@@ -50,24 +80,20 @@ const createProduct = async (req, res) => {
       duplicated: false,
       product: savedProduct,
     });
+
   } catch (error) {
-    if (error.code === 11000) {
-      const existingProduct = await Product.findOne({
-        clientProductId: req.body.clientProductId,
-      });
-
-      if (existingProduct) {
-        return res.status(200).json({
-          message: "El producto ya estaba registrado.",
-          duplicated: true,
-          product: existingProduct,
-        });
-      }
-    }
-
     console.error("Error creando el producto:", error.message);
 
-    if (error.name === "ValidationError" || error.name === "CastError") {
+    if (error.code === 11000) {
+      return res.status(409).json({
+        message: "Ya existe un producto con ese identificador.",
+      });
+    }
+
+    if (
+      error.name === "ValidationError" ||
+      error.name === "CastError"
+    ) {
       return res.status(400).json({
         message: "Los datos del producto no son válidos.",
         error: error.message,
@@ -84,13 +110,14 @@ const createProduct = async (req, res) => {
 const getProducts = async (req, res) => {
   try {
     const products = await Product.find().sort({
-      createdAt: 1,
+      id: 1,
     });
 
     return res.status(200).json({
       total: products.length,
       products,
     });
+
   } catch (error) {
     console.error("Error consultando los productos:", error.message);
 
@@ -126,8 +153,12 @@ const updateProduct = async (req, res) => {
     }
 
     const updatedProduct = await Product.findOneAndUpdate(
-      { clientProductId: req.params.clientProductId },
-      { $set: updates },
+      {
+        clientProductId: req.params.clientProductId,
+      },
+      {
+        $set: updates,
+      },
       {
         new: true,
         runValidators: true,
@@ -144,10 +175,14 @@ const updateProduct = async (req, res) => {
       message: "Producto actualizado correctamente.",
       product: updatedProduct,
     });
+
   } catch (error) {
     console.error("Error actualizando el producto:", error.message);
 
-    if (error.name === "ValidationError" || error.name === "CastError") {
+    if (
+      error.name === "ValidationError" ||
+      error.name === "CastError"
+    ) {
       return res.status(400).json({
         message: "Los datos del producto no son válidos.",
         error: error.message,
@@ -160,12 +195,18 @@ const updateProduct = async (req, res) => {
   }
 };
 
-// Desactivar un producto sin eliminarlo
+// Cambiar el estado de un producto
 const deactivateProduct = async (req, res) => {
   try {
     const product = await Product.findOneAndUpdate(
-      { clientProductId: req.params.clientProductId },
-      { $set: { active: false } },
+      {
+        clientProductId: req.params.clientProductId,
+      },
+      {
+        $set: {
+          active: false,
+        },
+      },
       {
         new: true,
         runValidators: true,
@@ -182,6 +223,7 @@ const deactivateProduct = async (req, res) => {
       message: "Producto desactivado correctamente.",
       product,
     });
+
   } catch (error) {
     console.error("Error desactivando el producto:", error.message);
 
@@ -191,9 +233,48 @@ const deactivateProduct = async (req, res) => {
   }
 };
 
+// Activar un producto
+const activateProduct = async (req, res) => {
+  try {
+    const product = await Product.findOneAndUpdate(
+      {
+        clientProductId: req.params.clientProductId,
+      },
+      {
+        $set: {
+          active: true,
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
+    if (!product) {
+      return res.status(404).json({
+        message: "No se encontró el producto.",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Producto activado correctamente.",
+      product,
+    });
+
+  } catch (error) {
+    console.error("Error activando el producto:", error.message);
+
+    return res.status(500).json({
+      message: "Error interno al activar el producto.",
+    });
+  }
+};
+
 module.exports = {
   createProduct,
   getProducts,
   updateProduct,
   deactivateProduct,
+  activateProduct,
 };

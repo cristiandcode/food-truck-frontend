@@ -6,6 +6,7 @@ const {
   getProducts,
   updateProduct,
   deactivateProduct,
+  activateProduct,
 } = require("../controllers/productController");
 
 const router = express.Router();
@@ -19,7 +20,10 @@ router.get("/", getProducts);
 // Actualizar un producto
 router.put("/:clientProductId", updateProduct);
 
-// Desactivar un producto sin eliminarlo
+// Desactivar un producto
 router.patch("/:clientProductId/deactivate", deactivateProduct);
+
+// Activar un producto
+router.patch("/:clientProductId/activate", activateProduct);
 
 module.exports = router;

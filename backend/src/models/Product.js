@@ -3,8 +3,15 @@ const mongoose = require("mongoose");
 
 const productSchema = new mongoose.Schema(
   {
-    // Identificador estable generado por el TPV.
-    // Permite reconocer el mismo producto entre dispositivos.
+    // ID numérico compatible con el TPV y las ventas.
+    id: {
+      type: Number,
+      required: true,
+      unique: true,
+      min: 1,
+    },
+
+    // Identificador estable compartido entre dispositivos.
     clientProductId: {
       type: String,
       required: true,
@@ -35,13 +42,11 @@ const productSchema = new mongoose.Schema(
       default: "📦",
     },
 
-    // Los productos se desactivan, no se eliminan.
     active: {
       type: Boolean,
       default: true,
     },
 
-    // Identificador opcional del dispositivo que creó el producto.
     deviceId: {
       type: String,
       default: null,
