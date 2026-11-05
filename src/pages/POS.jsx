@@ -1,3 +1,4 @@
+
 import { useRef, useState } from 'react'
 
 import CategoryTabs from '../components/pos/CategoryTabs'
@@ -29,15 +30,35 @@ function getSavedSales() {
 }
 
 // Guardar en la venta solo los datos necesarios del producto
-function toSaleItem(item) {
+function toSaleItem(item, isSeniorCustomer) {
+  const priceCents = Math.round(Number(item.price) * 100)
+  const lineSubtotalCents = priceCents * item.quantity
+
+  const seniorDiscountEligible =
+    item.seniorDiscountEligible === true
+
+  const discountCents =
+    isSeniorCustomer && seniorDiscountEligible
+      ? Math.round(lineSubtotalCents * 0.05)
+      : 0
+
+  const lineTotalCents =
+    lineSubtotalCents - discountCents
+
   return {
-    id: item.id,
+    id: String(item.id),
     clientProductId: item.clientProductId || `lubinin-${item.id}`,
     name: item.name,
-    price: Number(Number(item.price).toFixed(2)),
+    price: priceCents / 100,
     category: item.category,
     emoji: item.emoji,
     quantity: item.quantity,
+
+    seniorDiscountEligible,
+
+    lineSubtotal: lineSubtotalCents / 100,
+    discountAmount: discountCents / 100,
+    lineTotal: lineTotalCents / 100,
   }
 }
 
@@ -79,7 +100,11 @@ function POS({ products }) {
   }
 
   // Confirmar y guardar la venta
-  const handleConfirmPayment = (paymentMethod, paymentDetails) => {
+  const handleConfirmPayment = (
+    paymentMethod,
+    paymentDetails,
+    isSeniorCustomer
+  ) => {
     if (isProcessing.current || cart.length === 0) return
 
     isProcessing.current = true
@@ -97,12 +122,25 @@ function POS({ products }) {
           0
         ) + 1
 
-      // Calcular el total en céntimos
-      const totalCents = cart.reduce(
+      // Crear los productos con sus importes calculados
+      const saleItems = cart.map((item) =>
+        toSaleItem(item, isSeniorCustomer)
+      )
+
+      // Calcular subtotal y descuento en céntimos
+      const subtotalCents = saleItems.reduce(
         (sum, item) =>
-          sum + Math.round(item.price * 100) * item.quantity,
+          sum + Math.round(item.lineSubtotal * 100),
         0
       )
+
+      const discountCents = saleItems.reduce(
+        (sum, item) =>
+          sum + Math.round(item.discountAmount * 100),
+        0
+      )
+
+      const totalCents = subtotalCents - discountCents
 
       // Crear el registro de venta
       const sale = {
@@ -111,10 +149,14 @@ function POS({ products }) {
         syncStatus: 'pending',
         date: new Date().toISOString(),
 
-        // Guardar una copia limpia de los productos y sus precios
-        items: cart.map(toSaleItem),
+        items: saleItems,
 
+        subtotal: subtotalCents / 100,
+        isSeniorCustomer,
+        discountRate: isSeniorCustomer ? 5 : 0,
+        discountAmount: discountCents / 100,
         total: totalCents / 100,
+
         paymentMethod,
 
         paymentDetails: {
@@ -229,6 +271,7 @@ function POS({ products }) {
       {/* Ventana de cobro */}
       {showCheckout && (
         <CheckoutModal
+          cart={cart}
           total={total}
           onClose={() => setShowCheckout(false)}
           onConfirm={handleConfirmPayment}

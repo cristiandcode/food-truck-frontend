@@ -72,7 +72,9 @@ function hasProductChanges(previousProduct, product) {
     Number(previousProduct.price) !== Number(product.price) ||
     previousProduct.category !== product.category ||
     previousProduct.emoji !== product.emoji ||
-    (previousProduct.active ?? true) !== product.active
+    (previousProduct.active ?? true) !== product.active ||
+    (previousProduct.seniorDiscountEligible ?? false) !==
+      (product.seniorDiscountEligible ?? false)
   )
 }
 

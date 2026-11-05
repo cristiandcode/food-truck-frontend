@@ -158,16 +158,38 @@ function getSaleItems(sale) {
   return Array.isArray(sale.items) ? sale.items : []
 }
 
-// Ticket imprimible de una venta del historial
-function HistorySaleTicket({ sale }) {
-  const items = getSaleItems(sale)
+// Calcula el subtotal original de una venta.
+function getSaleSubtotal(sale) {
+  if (sale.subtotal !== undefined && sale.subtotal !== null) {
+    return Number(sale.subtotal)
+  }
 
-  const subtotal = items.reduce(
+  return getSaleItems(sale).reduce(
     (sum, item) =>
       sum +
       Number(item.price || 0) * Number(item.quantity || 0),
     0
   )
+}
+
+// Recupera el descuento total, incluso si falta el campo principal.
+function getSaleDiscount(sale) {
+  if (sale.discountAmount !== undefined && sale.discountAmount !== null) {
+    return Number(sale.discountAmount)
+  }
+
+  return getSaleItems(sale).reduce(
+    (sum, item) => sum + Number(item.discountAmount || 0),
+    0
+  )
+}
+
+// Ticket imprimible de una venta del historial
+function HistorySaleTicket({ sale }) {
+  const items = getSaleItems(sale)
+  const subtotal = getSaleSubtotal(sale)
+  const discountAmount = getSaleDiscount(sale)
+  const hasDiscount = discountAmount > 0
 
   const paymentLabel =
     sale.paymentMethod === 'cash' ? 'Efectivo' : 'Tarjeta'
@@ -238,6 +260,13 @@ function HistorySaleTicket({ sale }) {
         <span>Subtotal</span>
         <span>{formatPrice(subtotal)}</span>
       </div>
+
+      {hasDiscount && (
+        <div className="mt-2 flex justify-between gap-2">
+          <span>Descuento jubilado (5 %)</span>
+          <span>-{formatPrice(discountAmount)}</span>
+        </div>
+      )}
 
       <div className="mt-2 flex justify-between text-lg font-bold">
         <span>TOTAL</span>
@@ -1311,6 +1340,28 @@ function Sales() {
               </div>
 
               <div className="space-y-3 rounded-xl bg-[#f5f3ee] p-4">
+                <div className="flex justify-between">
+                  <span className="text-sm text-[#89877e]">
+                    Subtotal
+                  </span>
+
+                  <span className="font-semibold">
+                    {formatPrice(getSaleSubtotal(selectedSale))}
+                  </span>
+                </div>
+
+                {getSaleDiscount(selectedSale) > 0 && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm text-[#89877e]">
+                      Descuento jubilado (5 %)
+                    </span>
+
+                    <span className="font-semibold text-green-700">
+                      -{formatPrice(getSaleDiscount(selectedSale))}
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex justify-between">
                   <span className="text-sm text-[#89877e]">
                     Método de pago

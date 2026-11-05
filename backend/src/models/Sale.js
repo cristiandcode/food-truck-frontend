@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 // Productos incluidos en una venta
@@ -6,6 +7,11 @@ const saleItemSchema = new mongoose.Schema(
     id: {
       type: String,
       required: true,
+    },
+
+    clientProductId: {
+      type: String,
+      default: null,
     },
 
     name: {
@@ -32,6 +38,26 @@ const saleItemSchema = new mongoose.Schema(
 
     category: {
       type: String,
+    },
+
+    // Elegibilidad comprobada por el backend
+    seniorDiscountEligible: {
+      type: Boolean,
+      default: false,
+    },
+
+    // Descuento aplicado a esta línea
+    discountAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // Importe final de esta línea
+    lineTotal: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
   },
   {
@@ -90,6 +116,35 @@ const saleSchema = new mongoose.Schema(
       },
     },
 
+    // Importe antes de aplicar descuentos
+    subtotal: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    // Indica si el cliente es jubilado o pensionado
+    isSeniorCustomer: {
+      type: Boolean,
+      default: false,
+    },
+
+    // Porcentaje de descuento aplicado
+    discountRate: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 5,
+    },
+
+    // Importe total descontado
+    discountAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // Total final después de descuentos
     total: {
       type: Number,
       required: true,

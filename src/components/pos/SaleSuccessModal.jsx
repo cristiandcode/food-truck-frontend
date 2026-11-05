@@ -1,4 +1,3 @@
-
 function formatPrice(price) {
   return Number(price || 0).toLocaleString('es-ES', {
     style: 'currency',
@@ -20,10 +19,31 @@ function SaleSuccessModal({ sale, onNewSale }) {
   const paymentLabel =
     sale.paymentMethod === 'cash' ? 'Efectivo' : 'Tarjeta'
 
-  const subtotal = sale.items.reduce(
-    (sum, item) => sum + Number(item.price) * item.quantity,
+  // Subtotal antes de aplicar descuentos.
+  // Compatibilidad con ventas antiguas que no tienen este campo.
+  const calculatedSubtotal = sale.items.reduce(
+    (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
     0
   )
+
+  const subtotal =
+    sale.subtotal !== undefined && sale.subtotal !== null
+      ? Number(sale.subtotal)
+      : calculatedSubtotal
+
+  // Descuento total de la venta.
+  // Si el campo no existe, se intenta recuperar desde los artículos.
+  const calculatedDiscount = sale.items.reduce(
+    (sum, item) => sum + Number(item.discountAmount || 0),
+    0
+  )
+
+  const discountAmount =
+    sale.discountAmount !== undefined && sale.discountAmount !== null
+      ? Number(sale.discountAmount)
+      : calculatedDiscount
+
+  const hasDiscount = discountAmount > 0
 
   const handlePrint = () => {
     window.print()
@@ -146,6 +166,13 @@ function SaleSuccessModal({ sale, onNewSale }) {
               <span>{formatPrice(subtotal)}</span>
             </div>
 
+            {hasDiscount && (
+              <div className="mt-2 flex justify-between gap-2">
+                <span>Descuento jubilado (5 %)</span>
+                <span>-{formatPrice(discountAmount)}</span>
+              </div>
+            )}
+
             <div className="mt-2 flex justify-between text-lg font-bold">
               <span>TOTAL</span>
               <span>{formatPrice(sale.total)}</span>
@@ -157,7 +184,7 @@ function SaleSuccessModal({ sale, onNewSale }) {
               Método de pago: {paymentLabel}
             </p>
 
-            {sale.paymentMethod === 'cash' && (
+            {sale.paymentMethod === 'cash' && sale.paymentDetails && (
               <>
                 <div className="mt-1 flex justify-between">
                   <span>Recibido</span>
@@ -207,12 +234,23 @@ function SaleSuccessModal({ sale, onNewSale }) {
                 {formatPrice(sale.total)}
               </p>
 
+              {hasDiscount && (
+                <div className="mt-3 flex justify-between text-sm">
+                  <span className="text-[#89877e]">
+                    Descuento jubilado (5 %)
+                  </span>
+                  <span className="font-bold text-green-700">
+                    -{formatPrice(discountAmount)}
+                  </span>
+                </div>
+              )}
+
               <div className="mt-4 flex justify-between text-sm">
                 <span className="text-[#89877e]">Método de pago</span>
                 <span className="font-bold">{paymentLabel}</span>
               </div>
 
-              {sale.paymentMethod === 'cash' && (
+              {sale.paymentMethod === 'cash' && sale.paymentDetails && (
                 <>
                   <div className="mt-2 flex justify-between text-sm">
                     <span className="text-[#89877e]">Recibido</span>
