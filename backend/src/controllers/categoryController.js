@@ -1,5 +1,5 @@
+
 const Category = require("../models/Category");
-const Product = require("../models/Product");
 
 const defaultCategories = [
   { id: "burgers", name: "Hamburguesas", icon: "🍔", order: 1 },
@@ -163,18 +163,8 @@ const deleteCategory = async (req, res) => {
       });
     }
 
-    // No permitir eliminar categorías que todavía tengan productos.
-    const productCount = await Product.countDocuments({
-      category: id,
-    });
-
-    if (productCount > 0) {
-      return res.status(409).json({
-        message: `No se puede eliminar esta categoría porque tiene ${productCount} producto(s) asignado(s). Reasignalos primero.`,
-        productCount,
-      });
-    }
-
+    // La eliminación de una categoría no elimina ni modifica
+    // los productos que estaban asignados a ella.
     category.deletedAt = new Date();
     await category.save();
 

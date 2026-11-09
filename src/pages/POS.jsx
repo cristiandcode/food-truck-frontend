@@ -1,4 +1,3 @@
-
 import { useRef, useState } from 'react'
 
 import CategoryTabs from '../components/pos/CategoryTabs'
@@ -7,7 +6,7 @@ import OrderPanel from '../components/pos/OrderPanel'
 import CheckoutModal from '../components/pos/CheckoutModal'
 import SaleSuccessModal from '../components/pos/SaleSuccessModal'
 
-import { categories } from '../data/categories'
+import useCategories from '../hooks/useCategories'
 import { useCart } from '../hooks/useCart'
 import { syncSale } from '../services/syncService'
 
@@ -63,6 +62,17 @@ function toSaleItem(item, isSeniorCustomer) {
 }
 
 function POS({ products }) {
+  const { categories: savedCategories } = useCategories()
+
+  // La categoría "Todos" se mantiene fija.
+  // Las demás se cargan dinámicamente.
+  const categories = [
+    { id: 'all', name: 'Todos', icon: '🍽️' },
+    ...savedCategories.filter(
+      (category) => category.id !== 'all'
+    ),
+  ]
+
   const [activeCategory, setActiveCategory] = useState('all')
   const [showCheckout, setShowCheckout] = useState(false)
   const [completedSale, setCompletedSale] = useState(null)
