@@ -1,4 +1,3 @@
-
 import { authenticatedFetch } from './authService'
 
 const API_URL =
@@ -61,7 +60,6 @@ export async function createSale(sale) {
     )
 
     error.status = response.status
-
     throw error
   }
 
@@ -74,7 +72,6 @@ export async function createSale(sale) {
     )
 
     error.status = response.status
-
     throw error
   }
 
@@ -100,7 +97,6 @@ export async function cancelRemoteSale(clientSaleId, cancelledAt) {
     )
 
     error.status = response.status
-
     throw error
   }
 
@@ -110,7 +106,41 @@ export async function cancelRemoteSale(clientSaleId, cancelledAt) {
     )
 
     error.status = response.status
+    throw error
+  }
 
+  return data
+}
+
+// Modificar el método de pago de una venta ya registrada en MongoDB.
+// Para efectivo, received contiene el importe entregado por el cliente.
+export async function updateRemoteSalePayment(clientSaleId, paymentData) {
+  const { response, data } = await requestJson(
+    `${API_URL}/api/sales/${encodeURIComponent(clientSaleId)}/payment`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(paymentData),
+    }
+  )
+
+  if (!response.ok) {
+    const error = new Error(
+      data?.message || 'No se pudo modificar el método de pago.'
+    )
+
+    error.status = response.status
+    throw error
+  }
+
+  if (!data?.sale) {
+    const error = new Error(
+      'Respuesta del servidor no válida al modificar el método de pago.'
+    )
+
+    error.status = response.status
     throw error
   }
 
@@ -129,7 +159,6 @@ export async function getRemoteSales() {
     )
 
     error.status = response.status
-
     throw error
   }
 

@@ -1,7 +1,6 @@
-
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { getRemoteSales } from '../services/salesService'
+import { getRemoteSales, updateRemoteSalePayment } from '../services/salesService'
 import { retryReviewSale, cancelSale } from '../services/syncService'
 
 const STORAGE_KEY = 'lubinin_sales'
@@ -9,11 +8,9 @@ const STORAGE_KEY = 'lubinin_sales'
 function getSavedSales() {
   try {
     const savedSales = localStorage.getItem(STORAGE_KEY)
-
     if (!savedSales) return []
 
     const parsedSales = JSON.parse(savedSales)
-
     return Array.isArray(parsedSales) ? parsedSales : []
   } catch (error) {
     console.error('Error al recuperar las ventas:', error)
@@ -27,7 +24,6 @@ function mergeSales(localSales, remoteSales) {
 
   localSales.forEach((sale) => {
     const saleId = sale.id || sale.clientSaleId
-
     if (!saleId) return
 
     salesMap.set(String(saleId), {
@@ -38,7 +34,6 @@ function mergeSales(localSales, remoteSales) {
 
   remoteSales.forEach((sale) => {
     const saleId = sale.clientSaleId || sale.id
-
     if (!saleId) return
 
     const normalizedId = String(saleId)
@@ -62,7 +57,6 @@ function isCancelled(sale) {
 function getSyncState(sale) {
   if (sale.syncStatus === 'synced') return 'synced'
   if (sale.syncStatus === 'needs-review') return 'review'
-
   return 'pending'
 }
 
@@ -138,7 +132,6 @@ function formatTicketDate(date) {
 
 function getLocalDate(date) {
   const parsedDate = new Date(date)
-
   const year = parsedDate.getFullYear()
   const month = String(parsedDate.getMonth() + 1).padStart(2, '0')
   const day = String(parsedDate.getDate()).padStart(2, '0')
@@ -340,6 +333,12 @@ function Sales() {
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
   const [cancelError, setCancelError] = useState('')
+  const [showPaymentEditor, setShowPaymentEditor] = useState(false)
+  const [newPaymentMethod, setNewPaymentMethod] = useState('card')
+  const [cashReceivedInput, setCashReceivedInput] = useState('')
+  const [isUpdatingPayment, setIsUpdatingPayment] = useState(false)
+  const [paymentError, setPaymentError] = useState('')
+  const [paymentSuccess, setPaymentSuccess] = useState('')
 
   const isRefreshingRef = useRef(false)
 
@@ -347,12 +346,105 @@ function Sales() {
     setSelectedSale(null)
     setConfirmCancel(false)
     setCancelError('')
+    setShowPaymentEditor(false)
+    setPaymentError('')
+    setPaymentSuccess('')
+  }
+
+  const handleOpenPaymentEditor = () => {
+    if (!selectedSale || isCancelled(selectedSale)) return
+
+    if (!isOnline) {
+      setPaymentError('Necesitás conexión para modificar el pago de una venta registrada en el servidor.')
+      return
+    }
+
+    if (getSyncState(selectedSale) !== 'synced') {
+      setPaymentError('Primero necesitás sincronizar esta venta con el servidor.')
+      return
+    }
+
+    setPaymentError('')
+    setPaymentSuccess('')
+    setNewPaymentMethod(selectedSale.paymentMethod === 'cash' ? 'card' : 'cash')
+    setCashReceivedInput(String(selectedSale.paymentDetails?.received ?? selectedSale.total ?? ''))
+    setShowPaymentEditor(true)
+  }
+
+  const handleSavePaymentMethod = async () => {
+    if (!selectedSale || isUpdatingPayment || isCancelled(selectedSale)) return
+
+    if (!isOnline || getSyncState(selectedSale) !== 'synced') {
+      setPaymentError('La venta debe estar sincronizada y necesitás conexión para modificar el pago.')
+      return
+    }
+
+    const paymentData = { paymentMethod: newPaymentMethod }
+
+    if (newPaymentMethod === 'cash') {
+      const received = Number(String(cashReceivedInput).replace(',', '.'))
+
+      if (!Number.isFinite(received) || received < Number(selectedSale.total || 0)) {
+        setPaymentError('El importe recibido debe ser igual o superior al total de la venta.')
+        return
+      }
+
+      paymentData.received = Number(received.toFixed(2))
+    }
+
+    setIsUpdatingPayment(true)
+    setPaymentError('')
+    setPaymentSuccess('')
+
+    try {
+      const result = await updateRemoteSalePayment(
+        selectedSale.clientSaleId || selectedSale.id,
+        paymentData
+      )
+
+      const serverSale = result.sale
+      const normalizedId = String(serverSale.clientSaleId || selectedSale.clientSaleId || selectedSale.id)
+      const updatedSale = { ...selectedSale, ...serverSale, id: normalizedId, syncStatus: 'synced' }
+
+      const savedSales = getSavedSales()
+      let foundLocalSale = false
+
+      const updatedLocalSales = savedSales.map((sale) => {
+        const saleId = String(sale.id || sale.clientSaleId || '')
+        if (saleId !== normalizedId) return sale
+
+        foundLocalSale = true
+        return { ...sale, ...updatedSale, id: normalizedId, syncStatus: 'synced' }
+      })
+
+      if (!foundLocalSale) updatedLocalSales.push(updatedSale)
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedLocalSales))
+
+      setSales((currentSales) => {
+        const exists = currentSales.some((sale) => String(sale.id || sale.clientSaleId || '') === normalizedId)
+
+        if (!exists) return [...currentSales, updatedSale]
+
+        return currentSales.map((sale) =>
+          String(sale.id || sale.clientSaleId || '') === normalizedId ? updatedSale : sale
+        )
+      })
+
+      setSelectedSale(updatedSale)
+      setShowPaymentEditor(false)
+      setPaymentSuccess('Método de pago actualizado correctamente.')
+    } catch (error) {
+      console.error('Error modificando el método de pago:', error)
+      setPaymentError(error.message || 'No se pudo modificar el método de pago. Intentá nuevamente.')
+    } finally {
+      setIsUpdatingPayment(false)
+    }
   }
 
   // Imprimir el ticket de la venta seleccionada
   const handlePrintTicket = () => {
     if (!selectedSale) return
-
     window.print()
   }
 
@@ -375,7 +467,6 @@ function Sales() {
 
     try {
       const remoteSales = await getRemoteSales()
-
       const latestLocalSales = getSavedSales()
 
       const combinedSales = mergeSales(
@@ -390,25 +481,16 @@ function Sales() {
       console.log('Ventas locales:', latestLocalSales.length)
       console.log('Ventas remotas:', remoteSales.length)
       console.log('Ventas unificadas:', combinedSales.length)
-
     } catch (error) {
       const latestLocalSales = getSavedSales()
-
       setSales(latestLocalSales)
 
       if (!navigator.onLine) {
         setIsOnline(false)
-
-        console.warn(
-          'Sin conexión. Se mantiene el historial local.'
-        )
+        console.warn('Sin conexión. Se mantiene el historial local.')
       } else {
-        console.error(
-          'Error consultando las ventas remotas:',
-          error
-        )
+        console.error('Error consultando las ventas remotas:', error)
       }
-
     } finally {
       isRefreshingRef.current = false
       setIsRefreshing(false)
@@ -422,7 +504,6 @@ function Sales() {
 
     try {
       const result = await retryReviewSale(sale.id)
-
       console.log('Resultado del reintento manual:', result)
     } catch (error) {
       console.error('Error en el reintento manual:', error)
@@ -443,7 +524,6 @@ function Sales() {
 
     try {
       const result = await cancelSale(selectedSale)
-
       console.log('Resultado de la cancelación:', result)
 
       if (!result?.cancelled) {
@@ -470,23 +550,15 @@ function Sales() {
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true)
-
-      console.log(
-        'Conexión recuperada. Actualizando historial...'
-      )
-
+      console.log('Conexión recuperada. Actualizando historial...')
       refreshSales()
     }
 
     const handleOffline = () => {
       setIsOnline(false)
       setIsRefreshing(false)
-
       setSales(getSavedSales())
-
-      console.log(
-        'Sin conexión. Se mantiene el historial local.'
-      )
+      console.log('Sin conexión. Se mantiene el historial local.')
     }
 
     window.addEventListener('online', handleOnline)
@@ -528,7 +600,6 @@ function Sales() {
 
       if (filterMode === 'range') {
         if (!startDate || !endDate) return false
-
         return saleDate >= startDate && saleDate <= endDate
       }
 
@@ -740,7 +811,6 @@ function Sales() {
       </style>
 
       <main className="mx-auto max-w-7xl p-5 lg:p-8">
-
         {/* Encabezado */}
         <div className="no-print mb-7 flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -795,7 +865,6 @@ function Sales() {
 
         {/* Filtros */}
         <div className="no-print mb-6 rounded-2xl border border-[#e8e4da] bg-white p-5">
-
           <div className="mb-4">
             <h3 className="font-bold text-[#26332d]">
               Período de consulta
@@ -906,7 +975,6 @@ function Sales() {
 
         {/* Resumen general */}
         <div className="no-print mb-7 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-
           <div className="rounded-2xl bg-[#26332d] p-5 text-white">
             <p className="text-sm text-white/70">
               Total vendido
@@ -950,7 +1018,6 @@ function Sales() {
 
         {/* Resumen por método de pago */}
         <div className="no-print mb-7 grid grid-cols-1 gap-4 sm:grid-cols-2">
-
           <div className="rounded-2xl border border-[#e8e4da] bg-white p-5">
             <div className="flex items-center gap-3">
               <span className="text-2xl">💵</span>
@@ -986,9 +1053,7 @@ function Sales() {
 
         {/* Informe de productos vendidos */}
         <div className="no-print mb-7 overflow-hidden rounded-2xl border border-[#e8e4da] bg-white">
-
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#eeeae2] p-5">
-
             <div>
               <h3 className="text-lg font-bold text-[#26332d]">
                 Productos vendidos
@@ -1024,7 +1089,6 @@ function Sales() {
           ) : (
             <>
               <div className="border-b border-[#eeeae2] bg-[#faf9f6] p-5">
-
                 <p className="mb-3 text-sm font-bold text-[#26332d]">
                   🏆 Ranking de productos más vendidos
                 </p>
@@ -1133,7 +1197,6 @@ function Sales() {
 
         {/* Listado de ventas */}
         <div className="no-print overflow-hidden rounded-2xl border border-[#e8e4da] bg-white">
-
           <div className="border-b border-[#eeeae2] p-5">
             <h3 className="text-lg font-bold">
               Operaciones registradas
@@ -1409,6 +1472,128 @@ function Sales() {
                 </div>
               </div>
 
+              {/* Modificar método de pago de una venta ya registrada */}
+              {!isCancelled(selectedSale) && (
+                <div className="mt-5">
+                  {paymentSuccess && (
+                    <p className="mb-3 rounded-xl bg-green-50 p-3 text-sm font-semibold text-green-800">
+                      {paymentSuccess}
+                    </p>
+                  )}
+
+                  {paymentError && (
+                    <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-800">
+                      {paymentError}
+                    </p>
+                  )}
+
+                  {!showPaymentEditor ? (
+                    <button
+                      type="button"
+                      onClick={handleOpenPaymentEditor}
+                      disabled={!isOnline || getSyncState(selectedSale) !== 'synced'}
+                      className="w-full rounded-xl border border-[#e8e4da] bg-white py-3 font-bold text-[#26332d] transition hover:bg-[#f5f3ee] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Cambiar método de pago
+                    </button>
+                  ) : (
+                    <div className="rounded-xl border border-[#e8e4da] bg-white p-4">
+                      <p className="font-bold text-[#26332d]">
+                        Modificar método de pago
+                      </p>
+
+                      <label className="mt-3 block text-sm font-semibold text-[#66685f]">
+                        Nuevo método de pago
+                      </label>
+
+                      <select
+                        value={newPaymentMethod}
+                        onChange={(event) => {
+                          setNewPaymentMethod(event.target.value)
+                          setPaymentError('')
+                        }}
+                        disabled={isUpdatingPayment}
+                        className="mt-2 w-full rounded-xl border border-[#e8e4da] bg-white px-3 py-3 outline-none focus:border-[#c18b45]"
+                      >
+                        <option value="cash">💵 Efectivo</option>
+                        <option value="card">💳 Tarjeta</option>
+                      </select>
+
+                      {newPaymentMethod === 'cash' && (
+                        <div className="mt-3">
+                          <label className="block text-sm font-semibold text-[#66685f]">
+                            Importe recibido (€)
+                          </label>
+
+                          <input
+                            type="number"
+                            min={Number(selectedSale.total || 0)}
+                            step="0.01"
+                            inputMode="decimal"
+                            value={cashReceivedInput}
+                            onChange={(event) => setCashReceivedInput(event.target.value)}
+                            disabled={isUpdatingPayment}
+                            className="mt-2 w-full rounded-xl border border-[#e8e4da] px-3 py-3 outline-none focus:border-[#c18b45]"
+                            placeholder="Ej. 10,00"
+                          />
+
+                          <p className="mt-2 text-xs text-[#89877e]">
+                            Total de la venta: {formatPrice(selectedSale.total)}. El cambio se calculará automáticamente.
+                          </p>
+                        </div>
+                      )}
+
+                      {newPaymentMethod === 'card' && (
+                        <p className="mt-3 text-xs text-[#89877e]">
+                          Se eliminarán los datos de efectivo (importe recibido y cambio).
+                        </p>
+                      )}
+
+                      {paymentError && (
+                        <p className="mt-3 text-sm font-semibold text-red-700">
+                          {paymentError}
+                        </p>
+                      )}
+
+                      <div className="mt-4 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowPaymentEditor(false)
+                            setPaymentError('')
+                          }}
+                          disabled={isUpdatingPayment}
+                          className="flex-1 rounded-xl border border-[#e8e4da] px-3 py-3 text-sm font-bold text-[#66685f] disabled:opacity-50"
+                        >
+                          Volver
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleSavePaymentMethod}
+                          disabled={isUpdatingPayment || newPaymentMethod === selectedSale.paymentMethod}
+                          className="flex-1 rounded-xl bg-[#26332d] px-3 py-3 text-sm font-bold text-white transition hover:bg-[#3c4c42] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isUpdatingPayment ? 'Guardando...' : 'Guardar cambio'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {!isOnline && (
+                    <p className="mt-2 text-xs text-[#89877e]">
+                      Conectate a internet para modificar el método de pago.
+                    </p>
+                  )}
+
+                  {isOnline && getSyncState(selectedSale) !== 'synced' && (
+                    <p className="mt-2 text-xs text-[#89877e]">
+                      Esta venta debe estar sincronizada antes de poder modificar su pago.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Imprimir ticket */}
               <button
                 type="button"
@@ -1490,7 +1675,6 @@ function Sales() {
         {selectedSale && (
           <HistorySaleTicket sale={selectedSale} />
         )}
-
       </main>
     </>
   )
