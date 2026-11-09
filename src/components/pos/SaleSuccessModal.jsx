@@ -1,3 +1,4 @@
+
 function formatPrice(price) {
   return Number(price || 0).toLocaleString('es-ES', {
     style: 'currency',
@@ -91,7 +92,17 @@ function SaleSuccessModal({ sale, onNewSale }) {
       </style>
 
       <div className="fixed inset-0 z-[150] flex items-center justify-center overflow-y-auto bg-black/60 p-4">
-        <div className="w-full max-w-md rounded-2xl bg-white p-7 text-center shadow-2xl">
+        <div className="relative w-full max-w-md rounded-2xl bg-white p-7 text-center shadow-2xl">
+
+          {/* Botón para cerrar la ventana */}
+          <button
+            type="button"
+            onClick={onNewSale}
+            aria-label="Cerrar ventana"
+            className="no-print absolute right-4 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-4xl font-bold leading-none text-red-600 transition hover:bg-red-600 hover:text-white active:scale-95"
+          >
+            ×
+          </button>
 
           {/* Confirmación */}
           <div className="no-print">
