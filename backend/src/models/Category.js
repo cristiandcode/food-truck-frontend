@@ -1,4 +1,3 @@
-
 const mongoose = require("mongoose");
 
 const categorySchema = new mongoose.Schema(
@@ -26,6 +25,12 @@ const categorySchema = new mongoose.Schema(
     order: {
       type: Number,
       default: 100,
+    },
+
+    // null = activa. Una fecha = eliminada.
+    deletedAt: {
+      type: Date,
+      default: null,
     },
   },
   {

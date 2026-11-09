@@ -1,7 +1,6 @@
-
 import { useMemo, useState } from 'react'
 
-import { categories } from '../data/categories'
+import useCategories from '../hooks/useCategories'
 
 function formatPrice(price) {
   return Number(price || 0).toLocaleString('es-ES', {
@@ -19,6 +18,12 @@ const emptyForm = {
 }
 
 function Products({ products, onProductsChange }) {
+  const {
+    categories,
+    addCategory,
+    deleteCategory,
+  } = useCategories()
+
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -26,6 +31,15 @@ function Products({ products, onProductsChange }) {
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(emptyForm)
   const [formError, setFormError] = useState('')
+
+  const [showCategoryCreator, setShowCategoryCreator] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [newCategoryIcon, setNewCategoryIcon] = useState('📦')
+  const [categoryError, setCategoryError] = useState('')
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false)
+
+  const [categoryActionError, setCategoryActionError] = useState('')
+  const [deletingCategoryId, setDeletingCategoryId] = useState(null)
 
   const availableCategories = categories.filter(
     (category) => category.id !== 'all'
@@ -58,8 +72,9 @@ function Products({ products, onProductsChange }) {
 
   const getCategoryName = (categoryId) => {
     return (
-      availableCategories.find((category) => category.id === categoryId)
-        ?.name || 'Sin categoría'
+      availableCategories.find(
+        (category) => category.id === categoryId
+      )?.name || 'Sin categoría'
     )
   }
 
@@ -67,6 +82,10 @@ function Products({ products, onProductsChange }) {
     setEditingId(null)
     setForm(emptyForm)
     setFormError('')
+    setShowCategoryCreator(false)
+    setCategoryError('')
+    setNewCategoryName('')
+    setNewCategoryIcon('📦')
     setShowForm(true)
   }
 
@@ -83,6 +102,8 @@ function Products({ products, onProductsChange }) {
     })
 
     setFormError('')
+    setShowCategoryCreator(false)
+    setCategoryError('')
     setShowForm(true)
   }
 
@@ -91,6 +112,94 @@ function Products({ products, onProductsChange }) {
     setEditingId(null)
     setForm(emptyForm)
     setFormError('')
+    setShowCategoryCreator(false)
+    setCategoryError('')
+  }
+
+  const handleCreateCategory = async () => {
+    if (isCreatingCategory) return
+
+    setCategoryError('')
+
+    if (!newCategoryName.trim()) {
+      setCategoryError('Ingresá el nombre de la categoría.')
+      return
+    }
+
+    setIsCreatingCategory(true)
+
+    try {
+      const newCategory = await addCategory(
+        newCategoryName,
+        newCategoryIcon
+      )
+
+      setForm((current) => ({
+        ...current,
+        category: newCategory.id,
+      }))
+
+      setNewCategoryName('')
+      setNewCategoryIcon('📦')
+      setShowCategoryCreator(false)
+      setFormError('')
+    } catch (error) {
+      setCategoryError(
+        error.message || 'No se pudo crear la categoría.'
+      )
+    } finally {
+      setIsCreatingCategory(false)
+    }
+  }
+
+  const handleDeleteCategory = async (category) => {
+    if (deletingCategoryId !== null) return
+
+    setCategoryActionError('')
+
+    const assignedProducts = products.filter(
+      (product) => product.category === category.id
+    )
+
+    if (assignedProducts.length > 0) {
+      setCategoryActionError(
+        `No se puede eliminar "${category.name}" porque tiene ${assignedProducts.length} producto(s) asignado(s). Editá esos productos y asignales otra categoría primero.`
+      )
+      return
+    }
+
+    const confirmed = window.confirm(
+      `¿Querés eliminar la categoría "${category.name}"? Esta acción no se puede deshacer.`
+    )
+
+    if (!confirmed) return
+
+    setDeletingCategoryId(category.id)
+
+    try {
+      await deleteCategory(category.id)
+
+      if (categoryFilter === category.id) {
+        setCategoryFilter('all')
+      }
+
+      if (form.category === category.id) {
+        setForm((current) => ({
+          ...current,
+          category: availableCategories.find(
+            (item) => item.id !== category.id
+          )?.id || 'burgers',
+        }))
+      }
+
+      setCategoryActionError('')
+    } catch (error) {
+      setCategoryActionError(
+        error.message || 'No se pudo eliminar la categoría.'
+      )
+    } finally {
+      setDeletingCategoryId(null)
+    }
   }
 
   const handleSubmit = (event) => {
@@ -109,7 +218,11 @@ function Products({ products, onProductsChange }) {
       return
     }
 
-    if (!availableCategories.some((category) => category.id === form.category)) {
+    if (
+      !availableCategories.some(
+        (category) => category.id === form.category
+      )
+    ) {
       setFormError('Seleccioná una categoría válida.')
       return
     }
@@ -167,7 +280,6 @@ function Products({ products, onProductsChange }) {
 
   return (
     <main className="mx-auto max-w-7xl p-5 lg:p-8">
-
       {/* Encabezado */}
       <div className="mb-7 flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -191,7 +303,6 @@ function Products({ products, onProductsChange }) {
 
       {/* Resumen */}
       <div className="mb-7 grid grid-cols-1 gap-4 sm:grid-cols-3">
-
         <div className="rounded-2xl bg-[#26332d] p-5 text-white">
           <p className="text-sm text-white/70">
             Total de productos
@@ -221,12 +332,82 @@ function Products({ products, onProductsChange }) {
             {inactiveCount}
           </p>
         </div>
+      </div>
 
+      {/* Gestión de categorías */}
+      <div className="mb-6 rounded-2xl border border-[#e8e4da] bg-white p-5">
+        <div className="mb-4">
+          <h3 className="text-lg font-bold">
+            Categorías
+          </h3>
+
+          <p className="mt-1 text-sm text-[#89877e]">
+            Administrá las categorías que aparecen en el punto de venta.
+          </p>
+        </div>
+
+        {categoryActionError && (
+          <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">
+            {categoryActionError}
+          </p>
+        )}
+
+        {availableCategories.length === 0 ? (
+          <p className="text-sm text-[#89877e]">
+            No hay categorías disponibles.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {availableCategories.map((category) => {
+              const assignedCount = products.filter(
+                (product) => product.category === category.id
+              ).length
+
+              return (
+                <div
+                  key={category.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-[#eeeae2] p-3"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="text-2xl">
+                      {category.icon || '📦'}
+                    </span>
+
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-[#26332d]">
+                        {category.name}
+                      </p>
+
+                      <p className="text-xs text-[#89877e]">
+                        {assignedCount} producto(s)
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCategory(category)}
+                    disabled={deletingCategoryId !== null}
+                    title={
+                      assignedCount > 0
+                        ? 'Reasigná los productos antes de eliminar'
+                        : 'Eliminar categoría'
+                    }
+                    className="shrink-0 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {deletingCategoryId === category.id
+                      ? 'Eliminando...'
+                      : 'Eliminar'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Filtros */}
       <div className="mb-6 grid grid-cols-1 gap-3 rounded-2xl border border-[#e8e4da] bg-white p-5 md:grid-cols-3">
-
         <div>
           <label className="mb-2 block text-sm font-semibold">
             Buscar producto
@@ -255,7 +436,7 @@ function Products({ products, onProductsChange }) {
 
             {availableCategories.map((category) => (
               <option key={category.id} value={category.id}>
-                {category.name}
+                {category.icon} {category.name}
               </option>
             ))}
           </select>
@@ -276,12 +457,10 @@ function Products({ products, onProductsChange }) {
             <option value="inactive">Inactivos</option>
           </select>
         </div>
-
       </div>
 
       {/* Listado */}
       <div className="overflow-hidden rounded-2xl border border-[#e8e4da] bg-white">
-
         <div className="flex items-center justify-between border-b border-[#eeeae2] p-5">
           <div>
             <h3 className="text-lg font-bold">
@@ -308,7 +487,6 @@ function Products({ products, onProductsChange }) {
           </div>
         ) : (
           <div className="divide-y divide-[#eeeae2]">
-
             {filteredProducts.map((product) => {
               const isActive = product.active !== false
 
@@ -317,16 +495,17 @@ function Products({ products, onProductsChange }) {
                   key={product.id}
                   className="flex flex-wrap items-center justify-between gap-4 p-5 transition hover:bg-[#fcfbf8]"
                 >
-
                   <div className="flex min-w-0 items-center gap-4">
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[#f5f3ee] text-3xl">
                       {product.emoji || '🛍️'}
                     </div>
 
                     <div className="min-w-0">
-                      <p className={`font-bold ${
-                        isActive ? 'text-[#26332d]' : 'text-[#99958b]'
-                      }`}>
+                      <p
+                        className={`font-bold ${
+                          isActive ? 'text-[#26332d]' : 'text-[#99958b]'
+                        }`}
+                      >
                         {product.name}
                       </p>
 
@@ -335,11 +514,13 @@ function Products({ products, onProductsChange }) {
                       </p>
 
                       <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          isActive
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-gray-100 text-gray-600'
-                        }`}>
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            isActive
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
                           {isActive ? 'Activo' : 'Inactivo'}
                         </span>
 
@@ -377,22 +558,17 @@ function Products({ products, onProductsChange }) {
                       {isActive ? 'Desactivar' : 'Activar'}
                     </button>
                   </div>
-
                 </div>
               )
             })}
-
           </div>
         )}
-
       </div>
 
       {/* Formulario de producto */}
       {showForm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
-
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
-
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-extrabold text-[#26332d]">
@@ -414,7 +590,6 @@ function Products({ products, onProductsChange }) {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
-
               <div>
                 <label className="mb-2 block text-sm font-semibold">
                   Nombre del producto
@@ -460,18 +635,103 @@ function Products({ products, onProductsChange }) {
 
                 <select
                   value={form.category}
-                  onChange={(event) =>
-                    setForm({ ...form, category: event.target.value })
-                  }
+                  onChange={(event) => {
+                    if (event.target.value === '__new__') {
+                      setShowCategoryCreator(true)
+                      setCategoryError('')
+                      return
+                    }
+
+                    setForm({
+                      ...form,
+                      category: event.target.value,
+                    })
+
+                    setShowCategoryCreator(false)
+                  }}
                   className="w-full rounded-xl border border-[#e8e4da] bg-white px-4 py-3 outline-none focus:border-[#c18b45]"
                 >
                   {availableCategories.map((category) => (
                     <option key={category.id} value={category.id}>
-                      {category.name}
+                      {category.icon} {category.name}
                     </option>
                   ))}
+
+                  <option value="__new__">
+                    + Crear nueva categoría
+                  </option>
                 </select>
               </div>
+
+              {showCategoryCreator && (
+                <div className="space-y-3 rounded-xl border border-[#e8e4da] bg-[#fcfbf8] p-4">
+                  <p className="text-sm font-bold text-[#26332d]">
+                    Nueva categoría
+                  </p>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold">
+                      Nombre
+                    </label>
+
+                    <input
+                      type="text"
+                      value={newCategoryName}
+                      onChange={(event) =>
+                        setNewCategoryName(event.target.value)
+                      }
+                      placeholder="Ej. Churros"
+                      maxLength={40}
+                      className="w-full rounded-xl border border-[#e8e4da] bg-white px-4 py-3 outline-none focus:border-[#c18b45]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold">
+                      Emoji
+                    </label>
+
+                    <input
+                      type="text"
+                      value={newCategoryIcon}
+                      onChange={(event) =>
+                        setNewCategoryIcon(event.target.value)
+                      }
+                      placeholder="Ej. 🥨"
+                      maxLength={8}
+                      className="w-full rounded-xl border border-[#e8e4da] bg-white px-4 py-3 outline-none focus:border-[#c18b45]"
+                    />
+                  </div>
+
+                  {categoryError && (
+                    <p className="rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">
+                      {categoryError}
+                    </p>
+                  )}
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCategoryCreator(false)
+                        setCategoryError('')
+                      }}
+                      className="flex-1 rounded-xl border border-[#e8e4da] py-2.5 text-sm font-semibold text-[#66685f]"
+                    >
+                      Cancelar
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCreateCategory}
+                      disabled={isCreatingCategory}
+                      className="flex-1 rounded-xl bg-[#26332d] py-2.5 text-sm font-bold text-white disabled:opacity-50"
+                    >
+                      {isCreatingCategory ? 'Creando...' : 'Crear categoría'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="mb-2 block text-sm font-semibold">
@@ -544,14 +804,10 @@ function Products({ products, onProductsChange }) {
                   {editingId !== null ? 'Guardar cambios' : 'Crear producto'}
                 </button>
               </div>
-
             </form>
-
           </div>
-
         </div>
       )}
-
     </main>
   )
 }

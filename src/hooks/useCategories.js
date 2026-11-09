@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { categories as defaultCategories } from '../data/categories'
@@ -6,35 +5,29 @@ import { categories as defaultCategories } from '../data/categories'
 import {
   getRemoteCategories,
   createRemoteCategory,
+  deleteRemoteCategory,
 } from '../services/categoriesService'
 
 const STORAGE_KEY = 'lubinin_categories'
+
+const initialCategories = defaultCategories.filter(
+  (category) => category.id !== 'all'
+)
 
 function getSavedCategories() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
 
-    if (!saved) {
-      return defaultCategories.filter(
-        (category) => category.id !== 'all'
-      )
-    }
+    if (!saved) return initialCategories
 
     const parsed = JSON.parse(saved)
 
-    if (!Array.isArray(parsed)) {
-      return defaultCategories.filter(
-        (category) => category.id !== 'all'
-      )
-    }
+    if (!Array.isArray(parsed)) return initialCategories
 
     return parsed
   } catch (error) {
     console.error('Error recuperando categorías:', error)
-
-    return defaultCategories.filter(
-      (category) => category.id !== 'all'
-    )
+    return initialCategories
   }
 }
 
@@ -54,7 +47,7 @@ function mergeCategories(...lists) {
 
   for (const list of lists) {
     for (const category of list) {
-      if (!category?.id) continue
+      if (!category?.id || category.deleted === true) continue
 
       const previous = result.get(category.id)
 
@@ -70,6 +63,19 @@ function mergeCategories(...lists) {
   )
 }
 
+function getVisibleCategories(savedCategories) {
+  const deletedIds = new Set(
+    savedCategories
+      .filter((category) => category.deleted === true)
+      .map((category) => category.id)
+  )
+
+  return mergeCategories(
+    initialCategories,
+    savedCategories
+  ).filter((category) => !deletedIds.has(category.id))
+}
+
 function createCategoryId(name) {
   return name
     .normalize('NFD')
@@ -82,21 +88,14 @@ function createCategoryId(name) {
 
 function useCategories() {
   const [categories, setCategories] = useState(() =>
-    mergeCategories(
-      defaultCategories.filter(
-        (category) => category.id !== 'all'
-      ),
-      getSavedCategories()
-    )
+    getVisibleCategories(getSavedCategories())
   )
 
   const syncing = useRef(false)
 
-  const updateCategories = useCallback((nextCategories) => {
-    const merged = mergeCategories(nextCategories)
-
-    setCategories(merged)
-    saveCategories(merged)
+  const updateSavedCategories = useCallback((nextCategories) => {
+    saveCategories(nextCategories)
+    setCategories(getVisibleCategories(nextCategories))
   }, [])
 
   const syncPendingCategories = useCallback(async () => {
@@ -105,31 +104,84 @@ function useCategories() {
     syncing.current = true
 
     try {
-      const savedCategories = getSavedCategories()
+      // Primero sincronizar las eliminaciones pendientes.
+      let current = getSavedCategories()
 
-      const pendingCategories = savedCategories.filter(
-        (category) => category.pendingSync === true
+      const pendingDeletes = current.filter(
+        (category) =>
+          category.deleted === true &&
+          category.pendingDeleteSync === true
+      )
+
+      for (const category of pendingDeletes) {
+        try {
+          await deleteRemoteCategory(category.id)
+
+          current = getSavedCategories()
+
+          updateSavedCategories(
+            current.map((item) =>
+              item.id === category.id
+                ? {
+                    ...item,
+                    pendingDeleteSync: false,
+                  }
+                : item
+            )
+          )
+        } catch (error) {
+          // Si ya no existe en el servidor, la eliminación está cumplida.
+          if (error.status === 404) {
+            current = getSavedCategories()
+
+            updateSavedCategories(
+              current.map((item) =>
+                item.id === category.id
+                  ? {
+                      ...item,
+                      pendingDeleteSync: false,
+                    }
+                  : item
+              )
+            )
+
+            continue
+          }
+
+          console.error(
+            `No se pudo eliminar la categoría ${category.name}:`,
+            error
+          )
+        }
+      }
+
+      // Después sincronizar las categorías nuevas.
+      current = getSavedCategories()
+
+      const pendingCategories = current.filter(
+        (category) =>
+          category.pendingSync === true &&
+          category.deleted !== true
       )
 
       for (const category of pendingCategories) {
         try {
           const remoteCategory = await createRemoteCategory(category)
 
-          const current = getSavedCategories()
+          current = getSavedCategories()
 
-          const updated = current.map((item) =>
-            item.id === category.id
-              ? {
-                  ...remoteCategory,
-                  pendingSync: false,
-                }
-              : item
+          updateSavedCategories(
+            current.map((item) =>
+              item.id === category.id
+                ? {
+                    ...remoteCategory,
+                    pendingSync: false,
+                  }
+                : item
+            )
           )
-
-          updateCategories(updated)
         } catch (error) {
-          // Si ya existe en MongoDB, comprobar si podemos recuperarla.
-          if (error.message?.includes('Ya existe')) {
+          if (error.status === 409) {
             try {
               const remoteCategories = await getRemoteCategories()
 
@@ -138,15 +190,19 @@ function useCategories() {
               )
 
               if (existing) {
-                const current = getSavedCategories()
+                current = getSavedCategories()
 
-                updateCategories(
+                updateSavedCategories(
                   current.map((item) =>
                     item.id === category.id
-                      ? { ...existing, pendingSync: false }
+                      ? {
+                          ...existing,
+                          pendingSync: false,
+                        }
                       : item
                   )
                 )
+
                 continue
               }
             } catch (refreshError) {
@@ -166,7 +222,7 @@ function useCategories() {
     } finally {
       syncing.current = false
     }
-  }, [updateCategories])
+  }, [updateSavedCategories])
 
   useEffect(() => {
     let mounted = true
@@ -182,7 +238,13 @@ function useCategories() {
         const localCategories = getSavedCategories()
 
         const pendingCategories = localCategories.filter(
-          (category) => category.pendingSync === true
+          (category) =>
+            category.pendingSync === true &&
+            category.deleted !== true
+        )
+
+        const deletedCategories = localCategories.filter(
+          (category) => category.deleted === true
         )
 
         const merged = mergeCategories(
@@ -190,7 +252,13 @@ function useCategories() {
           pendingCategories
         )
 
-        updateCategories(merged)
+        // Conservar las marcas de eliminación locales.
+        const saved = [
+          ...merged,
+          ...deletedCategories,
+        ]
+
+        updateSavedCategories(saved)
 
         await syncPendingCategories()
       } catch (error) {
@@ -214,7 +282,7 @@ function useCategories() {
       mounted = false
       window.removeEventListener('online', handleOnline)
     }
-  }, [syncPendingCategories, updateCategories])
+  }, [syncPendingCategories, updateSavedCategories])
 
   const addCategory = useCallback(
     async (name, icon) => {
@@ -242,11 +310,14 @@ function useCategories() {
       const alreadyExists = currentCategories.some(
         (category) =>
           category.id === id ||
-          category.name.toLowerCase() === cleanName.toLowerCase()
+          (
+            category.deleted !== true &&
+            category.name.toLowerCase() === cleanName.toLowerCase()
+          )
       )
 
       if (alreadyExists) {
-        throw new Error('Ya existe una categoría con ese nombre.')
+        throw new Error('Ya existe una categoría con ese nombre o identificador.')
       }
 
       const newCategory = {
@@ -263,9 +334,10 @@ function useCategories() {
         pendingSync: true,
       }
 
-      const updated = [...currentCategories, newCategory]
-
-      updateCategories(updated)
+      updateSavedCategories([
+        ...currentCategories,
+        newCategory,
+      ])
 
       if (navigator.onLine) {
         try {
@@ -273,7 +345,7 @@ function useCategories() {
 
           const latest = getSavedCategories()
 
-          updateCategories(
+          updateSavedCategories(
             latest.map((category) =>
               category.id === id
                 ? {
@@ -286,29 +358,7 @@ function useCategories() {
 
           return remoteCategory
         } catch (error) {
-          // Si falla la conexión, queda guardada localmente
-          // y se sincronizará cuando vuelva Internet.
-          if (error.message?.includes('Ya existe')) {
-            const remoteCategories = await getRemoteCategories()
-
-            const existing = remoteCategories.find(
-              (category) => category.id === id
-            )
-
-            if (existing) {
-              const latest = getSavedCategories()
-
-              updateCategories(
-                latest.map((category) =>
-                  category.id === id
-                    ? { ...existing, pendingSync: false }
-                    : category
-                )
-              )
-
-              return existing
-            }
-
+          if (error.status === 409) {
             throw error
           }
 
@@ -320,17 +370,104 @@ function useCategories() {
 
       return newCategory
     },
-    [updateCategories]
+    [updateSavedCategories]
+  )
+
+  const deleteCategory = useCallback(
+    async (categoryId) => {
+      if (!categoryId || categoryId === 'all') {
+        throw new Error('No se puede eliminar esta categoría.')
+      }
+
+      const current = getSavedCategories()
+
+      const category = current.find(
+        (item) =>
+          item.id === categoryId &&
+          item.deleted !== true
+      )
+
+      if (!category) {
+        throw new Error('La categoría ya no existe.')
+      }
+
+      const tombstone = {
+        ...category,
+        deleted: true,
+        pendingDeleteSync: true,
+        pendingSync: false,
+      }
+
+      const updated = [
+        ...current.filter((item) => item.id !== categoryId),
+        tombstone,
+      ]
+
+      // Ocultar inmediatamente y conservar la marca de eliminación.
+      updateSavedCategories(updated)
+
+      if (navigator.onLine) {
+        try {
+          await deleteRemoteCategory(categoryId)
+
+          const latest = getSavedCategories()
+
+          updateSavedCategories(
+            latest.map((item) =>
+              item.id === categoryId
+                ? {
+                    ...item,
+                    pendingDeleteSync: false,
+                  }
+                : item
+            )
+          )
+        } catch (error) {
+          // Si el servidor confirma que ya no existe, no queda pendiente.
+          if (error.status === 404) {
+            const latest = getSavedCategories()
+
+            updateSavedCategories(
+              latest.map((item) =>
+                item.id === categoryId
+                  ? {
+                      ...item,
+                      pendingDeleteSync: false,
+                    }
+                  : item
+              )
+            )
+
+            return category
+          }
+
+          // Si el servidor impide eliminarla por tener productos,
+          // restaurar la categoría en el listado local.
+          if (error.status === 409 || error.status === 400) {
+            const latest = getSavedCategories()
+
+            updateSavedCategories(
+              latest.filter((item) => item.id !== categoryId)
+            )
+
+            throw error
+          }
+
+          console.warn(
+            'Categoría eliminada localmente. Pendiente de sincronización.'
+          )
+        }
+      }
+
+      return category
+    },
+    [updateSavedCategories]
   )
 
   return {
-    categories: mergeCategories(
-      defaultCategories.filter(
-        (category) => category.id !== 'all'
-      ),
-      categories
-    ),
+    categories: getVisibleCategories(getSavedCategories()),
     addCategory,
+    deleteCategory,
   }
 }
 

@@ -1,4 +1,3 @@
-
 import { authenticatedFetch } from './authService'
 
 const API_URL =
@@ -38,10 +37,36 @@ export async function createRemoteCategory(category) {
   const data = await response.json()
 
   if (!response.ok) {
-    throw new Error(
+    const error = new Error(
       data.message || 'No se pudo crear la categoría.'
     )
+
+    error.status = response.status
+    throw error
   }
 
   return data.category
+}
+
+export async function deleteRemoteCategory(categoryId) {
+  const response = await authenticatedFetch(
+    `${API_URL}/api/categories/${encodeURIComponent(categoryId)}`,
+    {
+      method: 'DELETE',
+    }
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    const error = new Error(
+      data.message || 'No se pudo eliminar la categoría.'
+    )
+
+    error.status = response.status
+    error.productCount = data.productCount
+    throw error
+  }
+
+  return data
 }

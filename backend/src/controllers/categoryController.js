@@ -1,5 +1,5 @@
-
 const Category = require("../models/Category");
+const Product = require("../models/Product");
 
 const defaultCategories = [
   { id: "burgers", name: "Hamburguesas", icon: "🍔", order: 1 },
@@ -10,19 +10,27 @@ const defaultCategories = [
   { id: "extras", name: "Extras", icon: "🧀", order: 6 },
 ];
 
-// Consultar categorías
+// Consultar categorías activas
 const getCategories = async (req, res) => {
   try {
-    // Asegurar que las categorías originales existan en MongoDB.
+    // Crear las categorías predeterminadas únicamente
+    // si todavía no existen en MongoDB.
     for (const category of defaultCategories) {
       await Category.updateOne(
         { id: category.id },
-        { $setOnInsert: category },
+        {
+          $setOnInsert: {
+            ...category,
+            deletedAt: null,
+          },
+        },
         { upsert: true }
       );
     }
 
-    const categories = await Category.find().sort({
+    const categories = await Category.find({
+      deletedAt: null,
+    }).sort({
       order: 1,
       name: 1,
     });
@@ -58,7 +66,6 @@ const createCategory = async (req, res) => {
       });
     }
 
-    // Generar un identificador estable a partir del nombre.
     const id = name
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
@@ -73,16 +80,28 @@ const createCategory = async (req, res) => {
       });
     }
 
+    const escapedName = name.replace(
+      /[.*+?^${}()|[\]\\]/g,
+      "\\$&"
+    );
+
     const existingCategory = await Category.findOne({
       $or: [
         { id },
-        { name: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" } },
+        {
+          name: {
+            $regex: `^${escapedName}$`,
+            $options: "i",
+          },
+        },
       ],
     });
 
     if (existingCategory) {
       return res.status(409).json({
-        message: "Ya existe una categoría con ese nombre.",
+        message: existingCategory.deletedAt
+          ? "Ya existe una categoría eliminada con ese identificador. Elegí otro nombre."
+          : "Ya existe una categoría con ese nombre.",
         category: existingCategory,
       });
     }
@@ -96,6 +115,7 @@ const createCategory = async (req, res) => {
       name,
       icon: icon || "📦",
       order: (lastCategory?.order || 0) + 1,
+      deletedAt: null,
     });
 
     const savedCategory = await category.save();
@@ -119,7 +139,60 @@ const createCategory = async (req, res) => {
   }
 };
 
+// Eliminar una categoría
+const deleteCategory = async (req, res) => {
+  try {
+    const id = String(req.params.categoryId || "")
+      .trim()
+      .toLowerCase();
+
+    if (!id || id === "all") {
+      return res.status(400).json({
+        message: "La categoría indicada no es válida.",
+      });
+    }
+
+    const category = await Category.findOne({
+      id,
+      deletedAt: null,
+    });
+
+    if (!category) {
+      return res.status(404).json({
+        message: "La categoría no existe o ya fue eliminada.",
+      });
+    }
+
+    // No permitir eliminar categorías que todavía tengan productos.
+    const productCount = await Product.countDocuments({
+      category: id,
+    });
+
+    if (productCount > 0) {
+      return res.status(409).json({
+        message: `No se puede eliminar esta categoría porque tiene ${productCount} producto(s) asignado(s). Reasignalos primero.`,
+        productCount,
+      });
+    }
+
+    category.deletedAt = new Date();
+    await category.save();
+
+    return res.status(200).json({
+      message: "Categoría eliminada correctamente.",
+      categoryId: id,
+    });
+  } catch (error) {
+    console.error("Error eliminando categoría:", error.message);
+
+    return res.status(500).json({
+      message: "Error interno al eliminar la categoría.",
+    });
+  }
+};
+
 module.exports = {
   getCategories,
   createCategory,
+  deleteCategory,
 };
