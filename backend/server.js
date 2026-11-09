@@ -8,6 +8,7 @@ const connectDB = require("./src/config/db");
 
 const saleRoutes = require("./src/routes/saleRoutes");
 const productRoutes = require("./src/routes/productRoutes");
+const categoryRoutes = require("./src/routes/categoryRoutes");
 const authRoutes = require("./src/routes/authRoutes");
 
 const { requireAuth } = require("./src/middleware/auth");
@@ -32,6 +33,7 @@ app.use("/api/auth", authRoutes);
 // Rutas protegidas
 app.use("/api/sales", requireAuth, saleRoutes);
 app.use("/api/products", requireAuth, productRoutes);
+app.use("/api/categories", requireAuth, categoryRoutes);
 
 // Puerto del servidor
 const PORT = process.env.PORT || 5000;
