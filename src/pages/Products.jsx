@@ -161,15 +161,17 @@ function Products({ products, onProductsChange }) {
       (product) => product.category === category.id
     )
 
-    if (assignedProducts.length > 0) {
-      setCategoryActionError(
-        `No se puede eliminar "${category.name}" porque tiene ${assignedProducts.length} producto(s) asignado(s). Editá esos productos y asignales otra categoría primero.`
-      )
-      return
-    }
+    const assignedCount = assignedProducts.length
+
+    const productMessage =
+      assignedCount === 1
+        ? 'También se eliminará 1 producto.'
+        : `También se eliminarán ${assignedCount} productos.`
 
     const confirmed = window.confirm(
-      `¿Querés eliminar la categoría "${category.name}"? Esta acción no se puede deshacer.`
+      `¿Estás seguro de que querés eliminar la categoría "${category.name}"?\n\n` +
+      `${productMessage}\n\n` +
+      'Esta acción es permanente y no se puede deshacer. Las ventas anteriores se conservarán.'
     )
 
     if (!confirmed) return
@@ -177,25 +179,43 @@ function Products({ products, onProductsChange }) {
     setDeletingCategoryId(category.id)
 
     try {
+      // Primero se eliminan la categoría y sus productos en el servidor.
       await deleteCategory(category.id)
+
+      // Después actualizamos el catálogo local para que desaparezcan
+      // inmediatamente de Gestión de productos y del TPV.
+      const updatedProducts = products.filter(
+        (product) => product.category !== category.id
+      )
+
+      onProductsChange(updatedProducts)
 
       if (categoryFilter === category.id) {
         setCategoryFilter('all')
       }
 
-      if (form.category === category.id) {
+      // Si se estaba editando un producto de esa categoría,
+      // cerramos el formulario porque ese producto ya no existe.
+      const editingProductWasDeleted = assignedProducts.some(
+        (product) => product.id === editingId
+      )
+
+      if (editingProductWasDeleted) {
+        closeForm()
+      } else if (form.category === category.id) {
         setForm((current) => ({
           ...current,
-          category: availableCategories.find(
-            (item) => item.id !== category.id
-          )?.id || 'burgers',
+          category:
+            availableCategories.find(
+              (item) => item.id !== category.id
+            )?.id || 'burgers',
         }))
       }
 
       setCategoryActionError('')
     } catch (error) {
       setCategoryActionError(
-        error.message || 'No se pudo eliminar la categoría.'
+        error.message || 'No se pudo eliminar la categoría y sus productos.'
       )
     } finally {
       setDeletingCategoryId(null)
@@ -388,11 +408,7 @@ function Products({ products, onProductsChange }) {
                     type="button"
                     onClick={() => handleDeleteCategory(category)}
                     disabled={deletingCategoryId !== null}
-                    title={
-                      assignedCount > 0
-                        ? 'Reasigná los productos antes de eliminar'
-                        : 'Eliminar categoría'
-                    }
+                    title="Eliminar categoría y sus productos"
                     className="shrink-0 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {deletingCategoryId === category.id

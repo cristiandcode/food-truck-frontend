@@ -1,5 +1,5 @@
-
 const Category = require("../models/Category");
+const Product = require("../models/Product");
 
 const defaultCategories = [
   { id: "burgers", name: "Hamburguesas", icon: "🍔", order: 1 },
@@ -13,8 +13,6 @@ const defaultCategories = [
 // Consultar categorías activas
 const getCategories = async (req, res) => {
   try {
-    // Crear las categorías predeterminadas únicamente
-    // si todavía no existen en MongoDB.
     for (const category of defaultCategories) {
       await Category.updateOne(
         { id: category.id },
@@ -80,10 +78,7 @@ const createCategory = async (req, res) => {
       });
     }
 
-    const escapedName = name.replace(
-      /[.*+?^${}()|[\]\\]/g,
-      "\\$&"
-    );
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
     const existingCategory = await Category.findOne({
       $or: [
@@ -139,7 +134,7 @@ const createCategory = async (req, res) => {
   }
 };
 
-// Eliminar una categoría
+// Eliminar una categoría y todos sus productos
 const deleteCategory = async (req, res) => {
   try {
     const id = String(req.params.categoryId || "")
@@ -163,14 +158,19 @@ const deleteCategory = async (req, res) => {
       });
     }
 
-    // La eliminación de una categoría no elimina ni modifica
-    // los productos que estaban asignados a ella.
+    // Eliminar definitivamente todos los productos de esta categoría.
+    const deletionResult = await Product.deleteMany({
+      category: id,
+    });
+
+    // Marcar la categoría como eliminada para que no vuelva a aparecer.
     category.deletedAt = new Date();
     await category.save();
 
     return res.status(200).json({
-      message: "Categoría eliminada correctamente.",
+      message: "Categoría y productos eliminados correctamente.",
       categoryId: id,
+      deletedProducts: deletionResult.deletedCount,
     });
   } catch (error) {
     console.error("Error eliminando categoría:", error.message);
