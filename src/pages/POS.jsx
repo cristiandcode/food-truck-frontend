@@ -253,6 +253,7 @@ function POS({ products }) {
           <ProductGrid
             products={filteredProducts}
             onAdd={addToCart}
+            cart={cart}
           />
 
         </section>

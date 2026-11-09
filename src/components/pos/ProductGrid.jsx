@@ -1,7 +1,7 @@
 
 import ProductCard from './ProductCard'
 
-function ProductGrid({ products, onAdd }) {
+function ProductGrid({ products, onAdd, cart }) {
   if (products.length === 0) {
     return (
       <p className="text-sm text-gray-500">
@@ -12,13 +12,20 @@ function ProductGrid({ products, onAdd }) {
 
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
-      {products.map((product) => (
-        <ProductCard
-          key={product.id}
-          product={product}
-          onAdd={onAdd}
-        />
-      ))}
+      {products.map((product) => {
+        const isSelected = cart.some(
+          (item) => item.id === product.id
+        )
+
+        return (
+          <ProductCard
+            key={product.id}
+            product={product}
+            onAdd={onAdd}
+            isSelected={isSelected}
+          />
+        )
+      })}
     </div>
   )
 }
