@@ -1,4 +1,3 @@
-
 const Sale = require("../models/Sale");
 const Product = require("../models/Product");
 
@@ -385,8 +384,129 @@ const cancelSale = async (req, res) => {
   }
 };
 
+// Modificar el método de pago de una venta ya registrada.
+const updateSalePaymentMethod = async (req, res) => {
+  try {
+    const { clientSaleId } = req.params;
+    const { paymentMethod } = req.body || {};
+
+    if (!clientSaleId) {
+      return res.status(400).json({
+        message: "Falta el identificador de la venta.",
+      });
+    }
+
+    if (!["cash", "card"].includes(paymentMethod)) {
+      return res.status(400).json({
+        message: "El método de pago no es válido.",
+      });
+    }
+
+    const existingSale = await Sale.findOne({ clientSaleId });
+
+    if (!existingSale) {
+      return res.status(404).json({
+        message: "La venta no existe en el servidor.",
+      });
+    }
+
+    if (existingSale.status === "cancelled") {
+      return res.status(409).json({
+        message: "No se puede modificar el pago de una venta cancelada.",
+      });
+    }
+
+    let paymentDetails;
+    const totalCents = toCents(existingSale.total);
+
+    if (paymentMethod === "cash") {
+      const received = Number(req.body?.received);
+      const receivedCents = toCents(received);
+
+      if (
+        !Number.isFinite(received) ||
+        !Number.isFinite(receivedCents) ||
+        receivedCents < totalCents
+      ) {
+        return res.status(400).json({
+          message: "El importe recibido debe ser igual o superior al total de la venta.",
+        });
+      }
+
+      paymentDetails = {
+        received: fromCents(receivedCents),
+        change: fromCents(receivedCents - totalCents),
+      };
+    } else {
+      // Al pasar a tarjeta se limpian los datos propios del pago en efectivo.
+      paymentDetails = {
+        received: 0,
+        change: 0,
+      };
+    }
+
+    // La condición de estado evita modificar una venta si se cancela
+    // mientras se procesa esta petición.
+    const updatedSale = await Sale.findOneAndUpdate(
+      {
+        clientSaleId,
+        status: { $ne: "cancelled" },
+      },
+      {
+        $set: {
+          paymentMethod,
+          paymentDetails,
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
+    if (!updatedSale) {
+      const latestSale = await Sale.findOne({ clientSaleId });
+
+      if (!latestSale) {
+        return res.status(404).json({
+          message: "La venta no existe en el servidor.",
+        });
+      }
+
+      return res.status(409).json({
+        message: "No se puede modificar el pago de una venta cancelada.",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Método de pago actualizado correctamente.",
+      sale: updatedSale,
+    });
+  } catch (error) {
+    console.error(
+      "Error modificando el método de pago:",
+      error.message
+    );
+
+    if (
+      error.name === "ValidationError" ||
+      error.name === "CastError"
+    ) {
+      return res.status(400).json({
+        message: "Los datos del pago no son válidos.",
+        error: error.message,
+      });
+    }
+
+    return res.status(500).json({
+      message: "Error interno al modificar el método de pago.",
+    });
+  }
+};
+
 module.exports = {
   createSale,
   getSales,
   cancelSale,
+  updateSalePaymentMethod,
 };
