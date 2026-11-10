@@ -154,6 +154,13 @@ function CancelBadge({ sale }) {
     </span>
   )
 }
+function formatSaleNumber(sale) {
+  const number = `#${String(sale.saleNumber).padStart(4, '0')}`
+
+  return sale.deviceId
+    ? `${number} · ${sale.deviceId}`
+    : number
+}
 
 function formatPrice(price) {
   return Number(price || 0).toLocaleString('es-ES', {
@@ -260,9 +267,9 @@ function HistorySaleTicket({ sale }) {
 
         <div className="my-3 border-t border-dashed border-black" />
 
-        <p>
-          Venta: #{String(sale.saleNumber).padStart(4, '0')}
-        </p>
+          <p>
+      Venta: {formatSaleNumber(sale)}
+    </p>
 
         <p>
           Fecha: {formatTicketDate(sale.date)}
@@ -1315,7 +1322,7 @@ function Sales() {
                           <p className={`font-bold text-[#26332d] ${
                             cancelled ? 'text-[#89877e] line-through' : ''
                           }`}>
-                            Venta #{String(sale.saleNumber).padStart(4, '0')}
+                           Venta {formatSaleNumber(sale)}
                           </p>
 
                           <p className="mt-1 text-sm text-[#89877e]">
@@ -1367,7 +1374,7 @@ function Sales() {
               <div className="mb-6 flex items-center justify-between">
                 <div>
                   <h3 className="text-xl font-extrabold text-[#26332d]">
-                    Venta #{String(selectedSale.saleNumber).padStart(4, '0')}
+                   Venta {formatSaleNumber(selectedSale)}
                   </h3>
 
                   <p className="mt-1 text-sm text-[#89877e]">
