@@ -22,6 +22,12 @@ function SaleSuccessModal({ sale, onNewSale }) {
   const paymentLabel =
     sale.paymentMethod === 'cash' ? 'Efectivo' : 'Tarjeta'
 
+  // Número de venta acompañado del identificador del dispositivo.
+  // Compatibilidad con ventas antiguas que no tienen deviceId.
+  const formattedSaleNumber = `#${String(sale.saleNumber).padStart(4, '0')}${
+    sale.deviceId ? ` · ${sale.deviceId}` : ''
+  }`
+
   // Subtotal antes de aplicar descuentos.
   // Compatibilidad con ventas antiguas que no tienen este campo.
   const calculatedSubtotal = sale.items.reduce(
@@ -134,7 +140,7 @@ function SaleSuccessModal({ sale, onNewSale }) {
                 <div className="my-3 border-t border-dashed border-black" />
 
                 <p>
-                  Venta: #{String(sale.saleNumber).padStart(4, '0')}
+                  Venta: {formattedSaleNumber}
                 </p>
 
                 <p>
@@ -262,8 +268,8 @@ function SaleSuccessModal({ sale, onNewSale }) {
                 Número de venta
               </p>
 
-              <p className="mt-1 text-2xl font-extrabold text-[#26332d]">
-                #{String(sale.saleNumber).padStart(4, '0')}
+              <p className="mt-1 text-2xl font-extrabold text-[#26332d] break-words">
+                {formattedSaleNumber}
               </p>
 
               <div className="my-4 border-t border-[#e8e4da]" />
