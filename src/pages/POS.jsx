@@ -1,3 +1,4 @@
+
 import { useRef, useState } from 'react'
 
 import CategoryTabs from '../components/pos/CategoryTabs'
@@ -11,8 +12,32 @@ import { useCart } from '../hooks/useCart'
 import { syncSale } from '../services/syncService'
 
 const STORAGE_KEY = 'lubinin_sales'
+const DEVICE_STORAGE_KEY = 'lubinin_device_id'
 
-// Recuperar las ventas guardadas
+// Obtener o crear un identificador permanente para este dispositivo.
+function getDeviceId() {
+  try {
+    let deviceId = localStorage.getItem(DEVICE_STORAGE_KEY)
+
+    if (deviceId) return deviceId
+
+    const randomCode = Math.random()
+      .toString(36)
+      .substring(2, 10)
+      .toUpperCase()
+
+    deviceId = `DISP-${randomCode}`
+
+    localStorage.setItem(DEVICE_STORAGE_KEY, deviceId)
+
+    return deviceId
+  } catch (error) {
+    console.error('Error al recuperar el identificador del dispositivo:', error)
+    throw new Error('No se pudo identificar este dispositivo.')
+  }
+}
+
+// Recuperar las ventas guardadas.
 function getSavedSales() {
   try {
     const savedSales = localStorage.getItem(STORAGE_KEY)
@@ -28,7 +53,7 @@ function getSavedSales() {
   }
 }
 
-// Guardar en la venta solo los datos necesarios del producto
+// Guardar en la venta solo los datos necesarios del producto.
 function toSaleItem(item, isSeniorCustomer) {
   const priceCents = Math.round(Number(item.price) * 100)
   const lineSubtotalCents = priceCents * item.quantity
@@ -89,19 +114,19 @@ function POS({ products }) {
     total,
   } = useCart()
 
-  // Mostrar solamente productos activos
+  // Mostrar solamente productos activos.
   const activeProducts = products.filter(
     (product) => product.active !== false
   )
 
-  // Filtrar productos por categoría
+  // Filtrar productos por categoría.
   const filteredProducts = activeProducts.filter(
     (product) =>
       activeCategory === 'all' ||
       product.category === activeCategory
   )
 
-  // Abrir pantalla de cobro
+  // Abrir pantalla de cobro.
   const handleCheckout = () => {
     if (cart.length === 0) return
 
@@ -109,7 +134,7 @@ function POS({ products }) {
     setShowCheckout(true)
   }
 
-  // Confirmar y guardar la venta
+  // Confirmar y guardar la venta.
   const handleConfirmPayment = (
     paymentMethod,
     paymentDetails,
@@ -121,10 +146,13 @@ function POS({ products }) {
     setStorageError('')
 
     try {
-      // Recuperar las ventas actuales del almacenamiento
+      // Recuperar las ventas actuales del almacenamiento.
       const currentSales = getSavedSales()
 
-      // Calcular el siguiente número de venta
+      // Recuperar o crear el identificador del dispositivo.
+      const deviceId = getDeviceId()
+
+      // Calcular el siguiente número de venta.
       const nextSaleNumber =
         currentSales.reduce(
           (highest, sale) =>
@@ -132,12 +160,12 @@ function POS({ products }) {
           0
         ) + 1
 
-      // Crear los productos con sus importes calculados
+      // Crear los productos con sus importes calculados.
       const saleItems = cart.map((item) =>
         toSaleItem(item, isSeniorCustomer)
       )
 
-      // Calcular subtotal y descuento en céntimos
+      // Calcular subtotal y descuento en céntimos.
       const subtotalCents = saleItems.reduce(
         (sum, item) =>
           sum + Math.round(item.lineSubtotal * 100),
@@ -152,10 +180,11 @@ function POS({ products }) {
 
       const totalCents = subtotalCents - discountCents
 
-      // Crear el registro de venta
+      // Crear el registro de venta.
       const sale = {
         id: `${Date.now()}-${nextSaleNumber}`,
         saleNumber: nextSaleNumber,
+        deviceId,
         syncStatus: 'pending',
         date: new Date().toISOString(),
 
@@ -175,16 +204,16 @@ function POS({ products }) {
         },
       }
 
-      // Añadir la nueva venta al historial
+      // Añadir la nueva venta al historial.
       const updatedSales = [sale, ...currentSales]
 
-      // Guardar en localStorage
+      // Guardar en localStorage.
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify(updatedSales)
       )
 
-      // Verificar que se haya guardado correctamente
+      // Verificar que se haya guardado correctamente.
       const verification = localStorage.getItem(STORAGE_KEY)
 
       if (!verification) {
@@ -200,17 +229,18 @@ function POS({ products }) {
         throw new Error('La venta no aparece en el almacenamiento.')
       }
 
-      // Actualizar la aplicación después de guardar correctamente
+      // Actualizar la aplicación después de guardar correctamente.
       setCompletedSale(sale)
 
       clearCart()
       setShowCheckout(false)
 
       console.log('Venta guardada correctamente:', sale)
+      console.log('Identificador del dispositivo:', deviceId)
       console.log('Total de ventas guardadas:', updatedSales.length)
 
-      // Intentar sincronizar después de guardar la venta localmente
-      // Si falla, la venta permanece pendiente en el navegador
+      // Intentar sincronizar después de guardar la venta localmente.
+      // Si falla, la venta permanece pendiente en el navegador.
       syncSale(sale)
         .then((result) => {
           console.log('Resultado de sincronización:', result)
@@ -231,7 +261,7 @@ function POS({ products }) {
     }
   }
 
-  // Volver al TPV después de una venta
+  // Volver al TPV después de una venta.
   const handleNewSale = () => {
     setCompletedSale(null)
     setStorageError('')
