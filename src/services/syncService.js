@@ -1,3 +1,4 @@
+
 import { createSale, cancelRemoteSale } from './salesService'
 
 const STORAGE_KEY = 'lubinin_sales'
@@ -77,6 +78,7 @@ function getServerSaleFields(serverSale) {
 
   const fields = [
     'saleNumber',
+    'deviceId',
     'date',
     'items',
     'subtotal',
@@ -93,7 +95,10 @@ function getServerSaleFields(serverSale) {
   const result = {}
 
   for (const field of fields) {
-    if (serverSale[field] !== undefined) {
+    if (
+      serverSale[field] !== undefined &&
+      (field !== 'deviceId' || serverSale[field])
+    ) {
       result[field] = serverSale[field]
     }
   }
