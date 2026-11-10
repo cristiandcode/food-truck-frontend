@@ -1,4 +1,6 @@
 
+import { createPortal } from 'react-dom'
+
 function formatPrice(price) {
   return Number(price || 0).toLocaleString('es-ES', {
     style: 'currency',
@@ -23,7 +25,8 @@ function SaleSuccessModal({ sale, onNewSale }) {
   // Subtotal antes de aplicar descuentos.
   // Compatibilidad con ventas antiguas que no tienen este campo.
   const calculatedSubtotal = sale.items.reduce(
-    (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
+    (sum, item) =>
+      sum + Number(item.price || 0) * Number(item.quantity || 0),
     0
   )
 
@@ -52,45 +55,178 @@ function SaleSuccessModal({ sale, onNewSale }) {
 
   return (
     <>
-      <style>
-        {`
-          @media print {
-            @page {
-              size: 80mm auto;
-              margin: 4mm;
-            }
+      {/* Estilos exclusivos de impresión */}
+      {createPortal(
+        <>
+          <style>
+            {`
+              @media print {
+                @page {
+                  size: 80mm 200mm;
+                  margin: 0;
+                }
 
-            body * {
-              visibility: hidden !important;
-            }
+                html,
+                body {
+                  width: 80mm !important;
+                  height: auto !important;
+                  min-height: 0 !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  overflow: visible !important;
+                }
 
-            #lubinin-ticket,
-            #lubinin-ticket * {
-              visibility: visible !important;
-            }
+                body > *:not(#lubinin-print-root) {
+                  display: none !important;
+                }
 
-            #lubinin-ticket {
-              display: block !important;
-              position: absolute !important;
-              left: 0 !important;
-              top: 0 !important;
-              width: 100% !important;
-              max-width: none !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              color: #000 !important;
-              background: #fff !important;
-              font-family: monospace !important;
-              font-size: 12px !important;
-            }
+                #lubinin-print-root {
+                  display: block !important;
+                  position: static !important;
+                  width: 80mm !important;
+                  height: auto !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  overflow: visible !important;
+                }
 
-            .no-print {
-              display: none !important;
-            }
-          }
-        `}
-      </style>
+                #lubinin-ticket {
+                  display: block !important;
+                  position: static !important;
+                  width: 72mm !important;
+                  max-width: 72mm !important;
+                  height: auto !important;
+                  margin: 0 auto !important;
+                  padding: 4mm !important;
+                  color: #000 !important;
+                  background: #fff !important;
+                  font-family: monospace !important;
+                  font-size: 12px !important;
+                  line-height: 1.35 !important;
+                  box-sizing: border-box !important;
+                }
 
+                #lubinin-ticket * {
+                  color: #000 !important;
+                  box-sizing: border-box !important;
+                }
+              }
+            `}
+          </style>
+
+          <div
+            id="lubinin-print-root"
+            className="hidden"
+          >
+            <div
+              id="lubinin-ticket"
+              className="bg-white text-left text-black"
+            >
+              <div className="text-center">
+                <h2 className="text-xl font-bold">
+                  FOOD TRUCK LUBININ
+                </h2>
+
+                <p className="mt-1 text-xs">
+                  Ticket de venta
+                </p>
+
+                <div className="my-3 border-t border-dashed border-black" />
+
+                <p>
+                  Venta: #{String(sale.saleNumber).padStart(4, '0')}
+                </p>
+
+                <p>
+                  Fecha: {formatDate(sale.date)}
+                </p>
+              </div>
+
+              <div className="my-3 border-t border-dashed border-black" />
+
+              <p className="mb-2 font-bold">
+                DETALLE
+              </p>
+
+              <div className="space-y-2">
+                {sale.items.map((item, index) => (
+                  <div key={`${item.id}-${index}`}>
+                    <p className="font-bold">
+                      {item.name}
+                    </p>
+
+                    <div className="flex justify-between gap-2">
+                      <span>
+                        {item.quantity} × {formatPrice(item.price)}
+                      </span>
+
+                      <span>
+                        {formatPrice(item.price * item.quantity)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="my-3 border-t border-dashed border-black" />
+
+              <div className="flex justify-between">
+                <span>Subtotal</span>
+                <span>{formatPrice(subtotal)}</span>
+              </div>
+
+              {hasDiscount && (
+                <div className="mt-2 flex justify-between gap-2">
+                  <span>Descuento jubilado (5 %)</span>
+                  <span>-{formatPrice(discountAmount)}</span>
+                </div>
+              )}
+
+              <div className="mt-2 flex justify-between text-lg font-bold">
+                <span>TOTAL</span>
+                <span>{formatPrice(sale.total)}</span>
+              </div>
+
+              <div className="my-3 border-t border-dashed border-black" />
+
+              <p>
+                Método de pago: {paymentLabel}
+              </p>
+
+              {sale.paymentMethod === 'cash' && sale.paymentDetails && (
+                <>
+                  <div className="mt-1 flex justify-between">
+                    <span>Recibido</span>
+                    <span>
+                      {formatPrice(sale.paymentDetails.received)}
+                    </span>
+                  </div>
+
+                  <div className="mt-1 flex justify-between">
+                    <span>Cambio</span>
+                    <span>
+                      {formatPrice(sale.paymentDetails.change)}
+                    </span>
+                  </div>
+                </>
+              )}
+
+              <div className="my-3 border-t border-dashed border-black" />
+
+              <p className="text-center font-bold">
+                ¡Gracias por tu compra!
+              </p>
+
+              <p className="mt-1 text-center text-xs">
+                Conservá este ticket como comprobante.
+              </p>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+
+      {/* Ventana de confirmación de venta */}
       <div className="fixed inset-0 z-[150] flex items-center justify-center overflow-y-auto bg-black/60 p-4">
         <div className="relative w-full max-w-md rounded-2xl bg-white p-7 text-center shadow-2xl">
 
@@ -116,111 +252,6 @@ function SaleSuccessModal({ sale, onNewSale }) {
 
             <p className="mt-2 text-sm text-[#89877e]">
               La venta se guardó correctamente.
-            </p>
-          </div>
-
-          {/* Ticket imprimible */}
-          <div
-            id="lubinin-ticket"
-            className="mx-auto mt-5 hidden w-full bg-white text-left text-black"
-          >
-            <div className="text-center">
-              <h2 className="text-xl font-bold">
-                FOOD TRUCK LUBININ
-              </h2>
-
-              <p className="mt-1 text-xs">
-                Ticket de venta
-              </p>
-
-              <div className="my-3 border-t border-dashed border-black" />
-
-              <p>
-                Venta: #{String(sale.saleNumber).padStart(4, '0')}
-              </p>
-
-              <p>
-                Fecha: {formatDate(sale.date)}
-              </p>
-            </div>
-
-            <div className="my-3 border-t border-dashed border-black" />
-
-            <p className="mb-2 font-bold">
-              DETALLE
-            </p>
-
-            <div className="space-y-2">
-              {sale.items.map((item, index) => (
-                <div key={`${item.id}-${index}`}>
-                  <p className="font-bold">
-                    {item.name}
-                  </p>
-
-                  <div className="flex justify-between gap-2">
-                    <span>
-                      {item.quantity} × {formatPrice(item.price)}
-                    </span>
-
-                    <span>
-                      {formatPrice(item.price * item.quantity)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="my-3 border-t border-dashed border-black" />
-
-            <div className="flex justify-between">
-              <span>Subtotal</span>
-              <span>{formatPrice(subtotal)}</span>
-            </div>
-
-            {hasDiscount && (
-              <div className="mt-2 flex justify-between gap-2">
-                <span>Descuento jubilado (5 %)</span>
-                <span>-{formatPrice(discountAmount)}</span>
-              </div>
-            )}
-
-            <div className="mt-2 flex justify-between text-lg font-bold">
-              <span>TOTAL</span>
-              <span>{formatPrice(sale.total)}</span>
-            </div>
-
-            <div className="my-3 border-t border-dashed border-black" />
-
-            <p>
-              Método de pago: {paymentLabel}
-            </p>
-
-            {sale.paymentMethod === 'cash' && sale.paymentDetails && (
-              <>
-                <div className="mt-1 flex justify-between">
-                  <span>Recibido</span>
-                  <span>
-                    {formatPrice(sale.paymentDetails.received)}
-                  </span>
-                </div>
-
-                <div className="mt-1 flex justify-between">
-                  <span>Cambio</span>
-                  <span>
-                    {formatPrice(sale.paymentDetails.change)}
-                  </span>
-                </div>
-              </>
-            )}
-
-            <div className="my-3 border-t border-dashed border-black" />
-
-            <p className="text-center font-bold">
-              ¡Gracias por tu compra!
-            </p>
-
-            <p className="mt-1 text-center text-xs">
-              Conservá este ticket como comprobante.
             </p>
           </div>
 

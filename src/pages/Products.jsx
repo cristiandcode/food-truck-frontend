@@ -1,3 +1,4 @@
+
 import { useMemo, useState } from 'react'
 
 import useCategories from '../hooks/useCategories'
@@ -40,6 +41,7 @@ function Products({ products, onProductsChange }) {
 
   const [categoryActionError, setCategoryActionError] = useState('')
   const [deletingCategoryId, setDeletingCategoryId] = useState(null)
+  const [categoryToDelete, setCategoryToDelete] = useState(null)
 
   const availableCategories = categories.filter(
     (category) => category.id !== 'all'
@@ -152,29 +154,25 @@ function Products({ products, onProductsChange }) {
     }
   }
 
-  const handleDeleteCategory = async (category) => {
+  // Abre la ventana personalizada de confirmación.
+  const handleDeleteCategory = (category) => {
     if (deletingCategoryId !== null) return
+
+    setCategoryActionError('')
+    setCategoryToDelete(category)
+  }
+
+  // Ejecuta la eliminación solamente después de confirmar.
+  const confirmDeleteCategory = async () => {
+    if (!categoryToDelete || deletingCategoryId !== null) return
+
+    const category = categoryToDelete
 
     setCategoryActionError('')
 
     const assignedProducts = products.filter(
       (product) => product.category === category.id
     )
-
-    const assignedCount = assignedProducts.length
-
-    const productMessage =
-      assignedCount === 1
-        ? 'También se eliminará 1 producto.'
-        : `También se eliminarán ${assignedCount} productos.`
-
-    const confirmed = window.confirm(
-      `¿Estás seguro de que querés eliminar la categoría "${category.name}"?\n\n` +
-      `${productMessage}\n\n` +
-      'Esta acción es permanente y no se puede deshacer. Las ventas anteriores se conservarán.'
-    )
-
-    if (!confirmed) return
 
     setDeletingCategoryId(category.id)
 
@@ -212,11 +210,13 @@ function Products({ products, onProductsChange }) {
         }))
       }
 
+      setCategoryToDelete(null)
       setCategoryActionError('')
     } catch (error) {
       setCategoryActionError(
         error.message || 'No se pudo eliminar la categoría y sus productos.'
       )
+      setCategoryToDelete(null)
     } finally {
       setDeletingCategoryId(null)
     }
@@ -297,6 +297,12 @@ function Products({ products, onProductsChange }) {
 
     onProductsChange(updatedProducts)
   }
+
+  const productsToDeleteCount = categoryToDelete
+    ? products.filter(
+        (product) => product.category === categoryToDelete.id
+      ).length
+    : 0
 
   return (
     <main className="mx-auto max-w-7xl p-5 lg:p-8">
@@ -821,6 +827,106 @@ function Products({ products, onProductsChange }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmación personalizada para eliminar categoría */}
+      {categoryToDelete && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              deletingCategoryId === null
+            ) {
+              setCategoryToDelete(null)
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-category-title"
+            className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
+            <div className="px-6 pb-5 pt-7 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50 text-3xl">
+                🗑️
+              </div>
+
+              <h3
+                id="delete-category-title"
+                className="mt-4 text-xl font-extrabold text-[#26332d]"
+              >
+                Eliminar categoría
+              </h3>
+
+              <p className="mt-2 text-sm text-[#89877e]">
+                ¿Estás seguro de que querés eliminar esta categoría?
+              </p>
+
+              <div className="mt-5 rounded-xl border border-[#eeeae2] bg-[#fcfbf8] p-4 text-left">
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">
+                    {categoryToDelete.icon || '📦'}
+                  </span>
+
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[#89877e]">
+                      Categoría seleccionada
+                    </p>
+
+                    <p className="mt-1 break-words font-bold text-[#26332d]">
+                      {categoryToDelete.name}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 border-t border-[#e8e4da] pt-4">
+                  <p className="text-sm font-semibold text-[#26332d]">
+                    {productsToDeleteCount === 1
+                      ? 'Se eliminará 1 producto.'
+                      : `Se eliminarán ${productsToDeleteCount} productos.`}
+                  </p>
+
+                  <p className="mt-2 text-xs leading-relaxed text-[#89877e]">
+                    Los productos de esta categoría también se eliminarán
+                    permanentemente del catálogo. Esta acción no se puede deshacer.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-start gap-2 rounded-xl bg-green-50 p-3 text-left">
+                <span className="text-base">✓</span>
+
+                <p className="text-xs leading-relaxed text-green-800">
+                  Las ventas históricas y sus detalles se conservarán.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-[#eeeae2] bg-[#fcfbf8] p-5 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => setCategoryToDelete(null)}
+                disabled={deletingCategoryId !== null}
+                className="flex-1 rounded-xl border border-[#e8e4da] bg-white px-4 py-3 font-semibold text-[#66685f] transition hover:bg-[#f5f3ee] disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={confirmDeleteCategory}
+                disabled={deletingCategoryId !== null}
+                className="flex-1 rounded-xl bg-red-600 px-4 py-3 font-bold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deletingCategoryId === categoryToDelete.id
+                  ? 'Eliminando...'
+                  : 'Sí, eliminar'}
+              </button>
+            </div>
           </div>
         </div>
       )}
