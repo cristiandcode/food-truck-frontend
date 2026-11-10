@@ -47,15 +47,15 @@ async function hashPin(pin, salt, iterations) {
     )
   }
 
-  const keyMaterial = await crypto.subtle.importKey(
+  const keyMaterial = await globalThis.crypto.subtle.importKey(
     'raw',
-    new TextEncoder().encode(pin),
+    new TextEncoder().encode(String(pin)),
     'PBKDF2',
     false,
     ['deriveBits']
   )
 
-  const bits = await crypto.subtle.deriveBits(
+  const bits = await globalThis.crypto.subtle.deriveBits(
     {
       name: 'PBKDF2',
       salt,
@@ -69,10 +69,10 @@ async function hashPin(pin, salt, iterations) {
   return bytesToBase64(new Uint8Array(bits))
 }
 
-// Guardar el verificador después de validar online
+// Guardar y verificar el verificador offline
 async function saveOfflinePinVerifier(pin) {
   try {
-    const salt = crypto.getRandomValues(
+    const salt = globalThis.crypto.getRandomValues(
       new Uint8Array(16)
     )
 
@@ -82,19 +82,53 @@ async function saveOfflinePinVerifier(pin) {
       PBKDF2_ITERATIONS
     )
 
+    const verifier = {
+      salt: bytesToBase64(salt),
+      hash,
+      iterations: PBKDF2_ITERATIONS,
+    }
+
+    const serializedVerifier = JSON.stringify(verifier)
+
     localStorage.setItem(
       OFFLINE_PIN_KEY,
-      JSON.stringify({
-        salt: bytesToBase64(salt),
-        hash,
-        iterations: PBKDF2_ITERATIONS,
-      })
+      serializedVerifier
     )
+
+    // Comprobar que realmente se guardó
+    const savedVerifier = localStorage.getItem(
+      OFFLINE_PIN_KEY
+    )
+
+    if (!savedVerifier) {
+      throw new Error(
+        'El navegador no confirmó el guardado del verificador.'
+      )
+    }
+
+    const parsedVerifier = JSON.parse(savedVerifier)
+
+    if (
+      parsedVerifier.hash !== hash ||
+      parsedVerifier.salt !== verifier.salt
+    ) {
+      throw new Error(
+        'El verificador guardado no coincide con el generado.'
+      )
+    }
+
+    console.info(
+      'Acceso offline configurado correctamente.'
+    )
+
+    return true
   } catch (error) {
     console.error(
       'No se pudo preparar el acceso offline:',
       error
     )
+
+    return false
   }
 }
 
@@ -110,6 +144,14 @@ async function loginOffline(pin) {
 
   try {
     const verifier = JSON.parse(saved)
+
+    if (
+      !verifier.salt ||
+      !verifier.hash ||
+      !verifier.iterations
+    ) {
+      throw new Error('Verificador inválido.')
+    }
 
     const calculatedHash = await hashPin(
       pin,
@@ -129,6 +171,11 @@ async function loginOffline(pin) {
     if (error.message === 'PIN incorrecto.') {
       throw error
     }
+
+    console.error(
+      'Error al validar el PIN offline:',
+      error
+    )
 
     throw new Error(
       'No se pudo comprobar el PIN offline.'
@@ -162,6 +209,10 @@ export async function loginWithPin(pin) {
   } catch (error) {
     // Si falla la conexión, intentar validación local
     if (error instanceof TypeError) {
+      console.warn(
+        'No se pudo contactar con el servidor. Intentando acceso offline...'
+      )
+
       return loginOffline(pin)
     }
 
