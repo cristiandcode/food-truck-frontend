@@ -1,5 +1,6 @@
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRegisterSW } from 'virtual:pwa-register/react'
 
 import './index.css'
 
@@ -83,16 +84,87 @@ function App() {
   const [products, setProducts] = useState(getSavedProducts)
 
   // Comprobar si existe un token guardado
-const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
 
   // Estado de la pantalla de acceso
   const [pin, setPin] = useState('')
   const [loginError, setLoginError] = useState('')
   const [isLoggingIn, setIsLoggingIn] = useState(false)
 
+  // Estado de seguridad para las actualizaciones
+  const [canApplyUpdate, setCanApplyUpdate] = useState(false)
+
   const isSyncingSales = useRef(false)
   const isSyncingProducts = useRef(false)
   const productsLoadPromise = useRef(null)
+
+  const swRegistration = useRef(null)
+  const isApplyingUpdate = useRef(false)
+
+  // Registrar el Service Worker y detectar actualizaciones
+  const {
+    needRefresh: [needRefresh],
+    updateServiceWorker,
+  } = useRegisterSW({
+    onRegisteredSW(_swUrl, registration) {
+      if (registration) {
+        swRegistration.current = registration
+      }
+    },
+  })
+
+  // Comprobar periódicamente si hay una nueva versión
+  useEffect(() => {
+    const updateCheck = window.setInterval(() => {
+      if (swRegistration.current && navigator.onLine) {
+        swRegistration.current.update().catch((error) => {
+          console.error(
+            'Error al comprobar actualizaciones:',
+            error
+          )
+        })
+      }
+    }, 60 * 60 * 1000)
+
+    return () => {
+      window.clearInterval(updateCheck)
+    }
+  }, [])
+
+  // Actualizar solamente cuando POS confirma que está libre
+  useEffect(() => {
+    if (
+      !needRefresh ||
+      !canApplyUpdate ||
+      isApplyingUpdate.current
+    ) {
+      return
+    }
+
+    isApplyingUpdate.current = true
+
+    console.log(
+      'Nueva versión disponible. Actualizando aplicación...'
+    )
+
+    updateServiceWorker().catch((error) => {
+      isApplyingUpdate.current = false
+
+      console.error(
+        'No se pudo aplicar la actualización:',
+        error
+      )
+    })
+  }, [
+    needRefresh,
+    canApplyUpdate,
+    updateServiceWorker,
+  ])
+
+  // Recibir información de seguridad desde POS
+  const handleUpdateSafetyChange = useCallback((isSafe) => {
+    setCanApplyUpdate(isSafe)
+  }, [])
 
   // Detectar cuando el backend informa que la sesión caducó
   useEffect(() => {
@@ -552,7 +624,10 @@ const [isAuthenticated, setIsAuthenticated] = useState(false)
       />
 
       {activePage === 'pos' && (
-        <POS products={products} />
+        <POS
+          products={products}
+          onUpdateSafetyChange={handleUpdateSafetyChange}
+        />
       )}
 
       {activePage === 'sales' && (

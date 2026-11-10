@@ -11,6 +11,7 @@ export default defineConfig({
 
     VitePWA({
       registerType: 'prompt',
+      injectRegister: false,
 
       manifest: {
         name: 'Lubinin TPV',

@@ -1,5 +1,5 @@
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import CategoryTabs from '../components/pos/CategoryTabs'
 import ProductGrid from '../components/pos/ProductGrid'
@@ -13,6 +13,7 @@ import { syncSale } from '../services/syncService'
 
 const STORAGE_KEY = 'lubinin_sales'
 const DEVICE_STORAGE_KEY = 'lubinin_device_id'
+const NOOP = () => {}
 
 // Obtener o crear un identificador permanente para este dispositivo.
 function getDeviceId() {
@@ -86,7 +87,7 @@ function toSaleItem(item, isSeniorCustomer) {
   }
 }
 
-function POS({ products }) {
+function POS({ products, onUpdateSafetyChange = NOOP }) {
   const { categories: savedCategories } = useCategories()
 
   // La categoría "Todos" se mantiene fija.
@@ -113,6 +114,26 @@ function POS({ products }) {
     totalItems,
     total,
   } = useCart()
+
+  // NUEVO: informar a App.jsx cuándo es seguro actualizar la PWA.
+  useEffect(() => {
+    const isSafeToUpdate =
+      cart.length === 0 &&
+      !showCheckout &&
+      !completedSale &&
+      !isProcessing.current
+
+    onUpdateSafetyChange(isSafeToUpdate)
+
+    return () => {
+      onUpdateSafetyChange(false)
+    }
+  }, [
+    cart.length,
+    showCheckout,
+    completedSale,
+    onUpdateSafetyChange,
+  ])
 
   // Mostrar solamente productos activos.
   const activeProducts = products.filter(
