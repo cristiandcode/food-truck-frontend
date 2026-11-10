@@ -83,9 +83,7 @@ function App() {
   const [products, setProducts] = useState(getSavedProducts)
 
   // Comprobar si existe un token guardado
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    () => Boolean(getAuthToken())
-  )
+const [isAuthenticated, setIsAuthenticated] = useState(false)
 
   // Estado de la pantalla de acceso
   const [pin, setPin] = useState('')
@@ -151,7 +149,8 @@ function App() {
 
   // Bloquear manualmente el TPV
   const handleLogout = () => {
-    logout()
+    // Bloquear la aplicación sin eliminar el token del servidor.
+    // Así se podrá sincronizar al recuperar Internet.
     setPin('')
     setLoginError('')
     setIsAuthenticated(false)
