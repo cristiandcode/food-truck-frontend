@@ -19,36 +19,93 @@ function getSavedSales() {
 }
 
 // Combinar ventas locales y remotas sin duplicar operaciones
+
 function mergeSales(localSales, remoteSales) {
   const salesMap = new Map()
 
+  // Primero incorporamos las ventas locales.
+  // Así no perdemos operaciones que todavía no llegaron al servidor.
   localSales.forEach((sale) => {
     const saleId = sale.id || sale.clientSaleId
+
     if (!saleId) return
 
-    salesMap.set(String(saleId), {
+    const normalizedId = String(saleId)
+
+    salesMap.set(normalizedId, {
       ...sale,
-      id: String(saleId),
+      id: normalizedId,
     })
   })
 
-  remoteSales.forEach((sale) => {
-    const saleId = sale.clientSaleId || sale.id
+  // Después incorporamos las ventas confirmadas por MongoDB.
+  remoteSales.forEach((remoteSale) => {
+    const saleId = remoteSale.clientSaleId || remoteSale.id
+
     if (!saleId) return
 
     const normalizedId = String(saleId)
     const localSale = salesMap.get(normalizedId)
 
-    salesMap.set(normalizedId, {
-      ...sale,
+    // Si la venta no existía localmente, se incorpora directamente.
+    if (!localSale) {
+      salesMap.set(normalizedId, {
+        ...remoteSale,
+        id: normalizedId,
+        syncStatus: 'synced',
+      })
+
+      return
+    }
+
+    const localWasCancelled =
+      localSale.status === 'cancelled'
+
+    const remoteIsCancelled =
+      remoteSale.status === 'cancelled'
+
+    // MongoDB es la fuente de los importes, descuentos,
+    // productos y datos definitivos de la venta.
+    const mergedSale = {
       ...localSale,
+      ...remoteSale,
+
+      // Conservamos el identificador local.
       id: normalizedId,
+
+      // Si la venta existe en MongoDB, está sincronizada.
       syncStatus: 'synced',
-    })
+
+      // Conservamos los datos de seguimiento local.
+      syncAttempts: localSale.syncAttempts || 0,
+      lastSyncAttempt: localSale.lastSyncAttempt || null,
+      lastSyncError: null,
+    }
+
+    // Una cancelación local pendiente nunca debe desaparecer
+    // porque MongoDB todavía devuelva la venta como activa.
+    if (localWasCancelled) {
+      mergedSale.status = 'cancelled'
+      mergedSale.cancelledAt =
+        localSale.cancelledAt || remoteSale.cancelledAt || null
+
+      mergedSale.cancelSynced =
+        remoteIsCancelled || localSale.cancelSynced === true
+    } else if (remoteIsCancelled) {
+      // Si MongoDB ya tiene la venta cancelada, respetamos ese estado.
+      mergedSale.status = 'cancelled'
+      mergedSale.cancelledAt = remoteSale.cancelledAt
+      mergedSale.cancelSynced = true
+    } else {
+      mergedSale.status = remoteSale.status || 'completed'
+    }
+
+    salesMap.set(normalizedId, mergedSale)
   })
 
   return Array.from(salesMap.values())
 }
+
 
 function isCancelled(sale) {
   return sale?.status === 'cancelled'

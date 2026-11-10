@@ -56,6 +56,20 @@ export async function updateRemoteProduct(product) {
   const clientProductId =
     product.clientProductId || `lubinin-${product.id}`
 
+  const productData = {
+    name: product.name,
+    price: product.price,
+    category: product.category,
+    emoji: product.emoji,
+  }
+
+  // Solo enviamos este campo si realmente está definido.
+  // Así evitamos desactivar accidentalmente el descuento.
+  if (typeof product.seniorDiscountEligible === 'boolean') {
+    productData.seniorDiscountEligible =
+      product.seniorDiscountEligible
+  }
+
   const response = await authenticatedFetch(
     `${API_URL}/api/products/${encodeURIComponent(clientProductId)}`,
     {
@@ -63,14 +77,7 @@ export async function updateRemoteProduct(product) {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        name: product.name,
-        price: product.price,
-        category: product.category,
-        emoji: product.emoji,
-        seniorDiscountEligible:
-          product.seniorDiscountEligible ?? false,
-      }),
+      body: JSON.stringify(productData),
     }
   )
 
