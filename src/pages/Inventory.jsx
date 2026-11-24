@@ -155,6 +155,12 @@ function Inventory({ products = [] }) {
   const [ingredientToAdd, setIngredientToAdd] = useState('')
   const [quantityToAdd, setQuantityToAdd] = useState('1')
 
+  // Avisos visuales dentro de Almacén.
+  const [notice, setNotice] = useState(null)
+
+  // Ingrediente pendiente de confirmación para eliminar.
+  const [ingredientToDelete, setIngredientToDelete] = useState(null)
+
   useEffect(() => {
     localStorage.setItem(
       INGREDIENTS_STORAGE_KEY,
@@ -168,6 +174,17 @@ function Inventory({ products = [] }) {
       JSON.stringify(recipes)
     )
   }, [recipes])
+
+  // Ocultar automáticamente los avisos.
+  useEffect(() => {
+    if (!notice) return
+
+    const timeout = window.setTimeout(() => {
+      setNotice(null)
+    }, 3500)
+
+    return () => window.clearTimeout(timeout)
+  }, [notice])
 
   // Actualizar las ventas al entrar nuevamente en Almacén.
   function refreshSales() {
@@ -349,6 +366,11 @@ function Inventory({ products = [] }) {
           item.id === editingId ? { ...item, name } : item
         )
       )
+
+      setNotice({
+        type: 'success',
+        message: 'Ingrediente actualizado correctamente.',
+      })
     } else {
       setIngredients((current) => [
         ...current,
@@ -358,6 +380,11 @@ function Inventory({ products = [] }) {
           unit: 'unidad',
         },
       ])
+
+      setNotice({
+        type: 'success',
+        message: 'Ingrediente agregado correctamente.',
+      })
     }
 
     setIngredientName('')
@@ -370,11 +397,19 @@ function Inventory({ products = [] }) {
   }
 
   function handleDeleteIngredient(id) {
-    const confirmed = window.confirm(
-      '¿Querés eliminar este ingrediente? También se quitará de las recetas donde esté utilizado.'
+    const ingredient = ingredients.find(
+      (item) => item.id === id
     )
 
-    if (!confirmed) return
+    if (!ingredient) return
+
+    setIngredientToDelete(ingredient)
+  }
+
+  function confirmDeleteIngredient() {
+    if (!ingredientToDelete) return
+
+    const id = ingredientToDelete.id
 
     setIngredients((current) =>
       current.filter((item) => item.id !== id)
@@ -400,6 +435,13 @@ function Inventory({ products = [] }) {
       setIngredientName('')
       setEditingId(null)
     }
+
+    setIngredientToDelete(null)
+
+    setNotice({
+      type: 'success',
+      message: 'Ingrediente eliminado correctamente.',
+    })
   }
 
   function handleSelectProduct(productId) {
@@ -415,7 +457,10 @@ function Inventory({ products = [] }) {
     const quantity = Number(quantityToAdd)
 
     if (!Number.isInteger(quantity) || quantity < 1) {
-      alert('La cantidad debe ser un número entero mayor que cero.')
+      setNotice({
+        type: 'error',
+        message: 'La cantidad debe ser un número entero mayor que cero.',
+      })
       return
     }
 
@@ -443,6 +488,11 @@ function Inventory({ products = [] }) {
 
     setIngredientToAdd('')
     setQuantityToAdd('1')
+
+    setNotice({
+      type: 'success',
+      message: 'Ingrediente añadido a la receta. Recordá guardar los cambios.',
+    })
   }
 
   function handleRemoveRecipeIngredient(id) {
@@ -466,7 +516,10 @@ function Inventory({ products = [] }) {
       return updated
     })
 
-    alert('Receta guardada correctamente.')
+    setNotice({
+      type: 'success',
+      message: 'Receta guardada correctamente.',
+    })
   }
 
   function cancelIngredientEdit() {
@@ -491,6 +544,37 @@ function Inventory({ products = [] }) {
           Controlá las unidades vendidas y los ingredientes consumidos en Lubinin.
         </p>
       </div>
+
+      {/* AVISO VISUAL */}
+      {notice && (
+        <div
+          role="status"
+          className={`mb-6 flex items-start justify-between gap-4 rounded-xl border p-4 shadow-sm ${
+            notice.type === 'error'
+              ? 'border-red-200 bg-red-50 text-red-800'
+              : 'border-green-200 bg-green-50 text-green-800'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-lg">
+              {notice.type === 'error' ? '⚠️' : '✓'}
+            </span>
+
+            <p className="pt-0.5 text-sm font-medium">
+              {notice.message}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            aria-label="Cerrar aviso"
+            className="shrink-0 rounded-lg px-2 text-lg leading-none opacity-60 hover:opacity-100"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* RESUMEN DE CONSUMO Y VENTAS */}
       <section className="mb-6 rounded-2xl border border-[#e8e4da] bg-white p-6 shadow-sm">
@@ -1011,6 +1095,59 @@ function Inventory({ products = [] }) {
           </div>
         )}
       </section>
+
+      {/* MODAL PERSONALIZADO PARA ELIMINAR INGREDIENTES */}
+      {ingredientToDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setIngredientToDelete(null)
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-ingredient-title"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+          >
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-2xl">
+              🗑️
+            </div>
+
+            <h3
+              id="delete-ingredient-title"
+              className="text-xl font-bold text-[#26332d]"
+            >
+              Eliminar ingrediente
+            </h3>
+
+            <p className="mt-2 text-sm leading-relaxed text-gray-500">
+              ¿Querés eliminar <strong className="text-[#26332d]">{ingredientToDelete.name}</strong>?
+              También se quitará de todas las recetas donde esté utilizado.
+            </p>
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setIngredientToDelete(null)}
+                className="rounded-xl border border-[#ddd8cc] px-5 py-3 text-sm font-semibold text-[#53675a] transition hover:bg-[#f8f7f3]"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={confirmDeleteIngredient}
+                className="rounded-xl bg-red-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-red-700"
+              >
+                Sí, eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
