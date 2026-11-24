@@ -18,7 +18,11 @@ const emptyForm = {
   seniorDiscountEligible: false,
 }
 
-function Products({ products, onProductsChange }) {
+function Products({
+  products,
+  onProductsChange,
+  nextProductId,
+}) {
   const {
     categories,
     addCategory,
@@ -42,6 +46,11 @@ function Products({ products, onProductsChange }) {
   const [categoryActionError, setCategoryActionError] = useState('')
   const [deletingCategoryId, setDeletingCategoryId] = useState(null)
   const [categoryToDelete, setCategoryToDelete] = useState(null)
+
+  // Estado para eliminar productos individualmente
+  const [productToDelete, setProductToDelete] = useState(null)
+  const [isDeletingProduct, setIsDeletingProduct] = useState(false)
+  const [productDeleteError, setProductDeleteError] = useState('')
 
   const availableCategories = categories.filter(
     (category) => category.id !== 'all'
@@ -222,6 +231,45 @@ function Products({ products, onProductsChange }) {
     }
   }
 
+  // Abrir confirmación para eliminar un producto individual.
+  const handleDeleteProduct = (product) => {
+    if (isDeletingProduct) return
+
+    setProductDeleteError('')
+    setProductToDelete(product)
+  }
+
+  // Eliminar el producto después de confirmar.
+  const confirmDeleteProduct = () => {
+    if (!productToDelete || isDeletingProduct) return
+
+    setIsDeletingProduct(true)
+    setProductDeleteError('')
+
+    try {
+      const updatedProducts = products.filter(
+        (product) => product.id !== productToDelete.id
+      )
+
+      // App.jsx detectará el producto que falta y registrará
+      // la eliminación pendiente para sincronizarla con MongoDB.
+      onProductsChange(updatedProducts)
+
+      // Si se estaba editando ese producto, cerramos el formulario.
+      if (editingId === productToDelete.id) {
+        closeForm()
+      }
+
+      setProductToDelete(null)
+    } catch (error) {
+      setProductDeleteError(
+        error.message || 'No se pudo eliminar el producto.'
+      )
+    } finally {
+      setIsDeletingProduct(false)
+    }
+  }
+
   const handleSubmit = (event) => {
     event.preventDefault()
 
@@ -264,12 +312,15 @@ function Products({ products, onProductsChange }) {
 
       onProductsChange(updatedProducts)
     } else {
+      // Utilizar el siguiente identificador calculado en App.jsx.
+      // El cálculo alternativo mantiene compatibilidad si no se recibe.
       const nextId =
-        products.reduce(
+        nextProductId ??
+        (products.reduce(
           (highest, product) =>
             Math.max(highest, Number(product.id) || 0),
           0
-        ) + 1
+        ) + 1)
 
       const newProduct = {
         id: nextId,
@@ -555,7 +606,7 @@ function Products({ products, onProductsChange }) {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-4">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                     <p className="text-lg font-extrabold text-[#26332d]">
                       {formatPrice(product.price)}
                     </p>
@@ -578,6 +629,14 @@ function Products({ products, onProductsChange }) {
                       }`}
                     >
                       {isActive ? 'Desactivar' : 'Activar'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteProduct(product)}
+                      className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+                    >
+                      Eliminar
                     </button>
                   </div>
                 </div>
@@ -827,6 +886,115 @@ function Products({ products, onProductsChange }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmación personalizada para eliminar producto */}
+      {productToDelete && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              !isDeletingProduct
+            ) {
+              setProductToDelete(null)
+              setProductDeleteError('')
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-product-title"
+            className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
+            <div className="px-6 pb-5 pt-7 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50 text-3xl">
+                🗑️
+              </div>
+
+              <h3
+                id="delete-product-title"
+                className="mt-4 text-xl font-extrabold text-[#26332d]"
+              >
+                Eliminar producto
+              </h3>
+
+              <p className="mt-2 text-sm text-[#89877e]">
+                ¿Estás seguro de que querés eliminar este producto?
+              </p>
+
+              <div className="mt-5 rounded-xl border border-[#eeeae2] bg-[#fcfbf8] p-4 text-left">
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">
+                    {productToDelete.emoji || '🛍️'}
+                  </span>
+
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[#89877e]">
+                      Producto seleccionado
+                    </p>
+
+                    <p className="mt-1 break-words font-bold text-[#26332d]">
+                      {productToDelete.name}
+                    </p>
+
+                    <p className="mt-1 text-sm text-[#89877e]">
+                      {formatPrice(productToDelete.price)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 border-t border-[#e8e4da] pt-4">
+                  <p className="text-sm leading-relaxed text-[#66685f]">
+                    El producto dejará de aparecer en el catálogo y en el TPV.
+                    Esta acción no se puede deshacer desde esta pantalla.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-start gap-2 rounded-xl bg-green-50 p-3 text-left">
+                <span className="text-base">✓</span>
+
+                <p className="text-xs leading-relaxed text-green-800">
+                  La eliminación del producto no modifica directamente
+                  las ventas ya registradas.
+                </p>
+              </div>
+
+              {productDeleteError && (
+                <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">
+                  {productDeleteError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-[#eeeae2] bg-[#fcfbf8] p-5 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => {
+                  setProductToDelete(null)
+                  setProductDeleteError('')
+                }}
+                disabled={isDeletingProduct}
+                className="flex-1 rounded-xl border border-[#e8e4da] bg-white px-4 py-3 font-semibold text-[#66685f] transition hover:bg-[#f5f3ee] disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={confirmDeleteProduct}
+                disabled={isDeletingProduct}
+                className="flex-1 rounded-xl bg-red-600 px-4 py-3 font-bold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isDeletingProduct
+                  ? 'Eliminando...'
+                  : 'Sí, eliminar producto'}
+              </button>
+            </div>
           </div>
         </div>
       )}

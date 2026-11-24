@@ -16,7 +16,6 @@ const createProduct = async (req, res) => {
       deviceId,
     } = req.body;
 
-    // Validar campos obligatorios
     if (
       id === undefined ||
       !clientProductId ||
@@ -29,14 +28,12 @@ const createProduct = async (req, res) => {
       });
     }
 
-    // Comprobar que el ID numérico sea válido
     if (!Number.isInteger(Number(id)) || Number(id) < 1) {
       return res.status(400).json({
         message: "El ID del producto debe ser un número entero positivo.",
       });
     }
 
-    // Validar elegibilidad para descuento
     if (
       seniorDiscountEligible !== undefined &&
       typeof seniorDiscountEligible !== "boolean"
@@ -46,7 +43,6 @@ const createProduct = async (req, res) => {
       });
     }
 
-    // Comprobar duplicados por ambos identificadores
     const existingProduct = await Product.findOne({
       $or: [
         { id: Number(id) },
@@ -55,11 +51,10 @@ const createProduct = async (req, res) => {
     });
 
     if (existingProduct) {
-      // Si ambos identificadores corresponden al mismo producto,
-      // devolvemos el existente sin duplicarlo.
       if (
         existingProduct.id === Number(id) &&
-        existingProduct.clientProductId === clientProductId
+        existingProduct.clientProductId === clientProductId &&
+        existingProduct.deleted !== true
       ) {
         return res.status(200).json({
           message: "El producto ya estaba registrado.",
@@ -121,10 +116,13 @@ const createProduct = async (req, res) => {
   }
 };
 
-// Consultar todos los productos
+
+// Consultar productos disponibles
 const getProducts = async (req, res) => {
   try {
-    const products = await Product.find().sort({
+    const products = await Product.find({
+      deleted: { $ne: true },
+    }).sort({
       id: 1,
     });
 
@@ -141,6 +139,7 @@ const getProducts = async (req, res) => {
     });
   }
 };
+
 
 // Modificar un producto
 const updateProduct = async (req, res) => {
@@ -162,7 +161,6 @@ const updateProduct = async (req, res) => {
       }
     }
 
-    // Validar elegibilidad para descuento
     if (
       updates.seniorDiscountEligible !== undefined &&
       typeof updates.seniorDiscountEligible !== "boolean"
@@ -181,6 +179,7 @@ const updateProduct = async (req, res) => {
     const updatedProduct = await Product.findOneAndUpdate(
       {
         clientProductId: req.params.clientProductId,
+        deleted: { $ne: true },
       },
       {
         $set: updates,
@@ -221,12 +220,14 @@ const updateProduct = async (req, res) => {
   }
 };
 
-// Cambiar el estado de un producto
+
+// Desactivar un producto
 const deactivateProduct = async (req, res) => {
   try {
     const product = await Product.findOneAndUpdate(
       {
         clientProductId: req.params.clientProductId,
+        deleted: { $ne: true },
       },
       {
         $set: {
@@ -259,12 +260,14 @@ const deactivateProduct = async (req, res) => {
   }
 };
 
+
 // Activar un producto
 const activateProduct = async (req, res) => {
   try {
     const product = await Product.findOneAndUpdate(
       {
         clientProductId: req.params.clientProductId,
+        deleted: { $ne: true },
       },
       {
         $set: {
@@ -297,10 +300,55 @@ const activateProduct = async (req, res) => {
   }
 };
 
+
+// Eliminar un producto (eliminación lógica)
+const deleteProduct = async (req, res) => {
+  try {
+    const product = await Product.findOneAndUpdate(
+      {
+        clientProductId: req.params.clientProductId,
+      },
+      {
+        $set: {
+          deleted: true,
+          deletedAt: new Date(),
+          active: false,
+        },
+      },
+      {
+        new: true,
+      }
+    );
+
+    // La operación es idempotente: si ya no existe,
+    // también consideramos completada la eliminación.
+    if (!product) {
+      return res.status(200).json({
+        message: "El producto ya no existe en el catálogo.",
+        deleted: true,
+      });
+    }
+
+    return res.status(200).json({
+      message: "Producto eliminado correctamente.",
+      deleted: true,
+    });
+
+  } catch (error) {
+    console.error("Error eliminando el producto:", error.message);
+
+    return res.status(500).json({
+      message: "Error interno al eliminar el producto.",
+    });
+  }
+};
+
+
 module.exports = {
   createProduct,
   getProducts,
   updateProduct,
   deactivateProduct,
   activateProduct,
+  deleteProduct,
 };

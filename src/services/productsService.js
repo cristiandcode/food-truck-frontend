@@ -21,6 +21,7 @@ export async function getRemoteProducts() {
   return data.products || []
 }
 
+
 // Crear un producto en MongoDB
 export async function createRemoteProduct(product) {
   const response = await authenticatedFetch(
@@ -51,6 +52,7 @@ export async function createRemoteProduct(product) {
   return data.product
 }
 
+
 // Actualizar un producto en MongoDB
 export async function updateRemoteProduct(product) {
   const clientProductId =
@@ -63,8 +65,6 @@ export async function updateRemoteProduct(product) {
     emoji: product.emoji,
   }
 
-  // Solo enviamos este campo si realmente está definido.
-  // Así evitamos desactivar accidentalmente el descuento.
   if (typeof product.seniorDiscountEligible === 'boolean') {
     productData.seniorDiscountEligible =
       product.seniorDiscountEligible
@@ -92,6 +92,7 @@ export async function updateRemoteProduct(product) {
   return data.product
 }
 
+
 // Activar o desactivar un producto
 export async function setRemoteProductActive(
   clientProductId,
@@ -115,4 +116,25 @@ export async function setRemoteProductActive(
   }
 
   return data.product
+}
+
+
+// Eliminar un producto de MongoDB
+export async function deleteRemoteProduct(clientProductId) {
+  const response = await authenticatedFetch(
+    `${API_URL}/api/products/${encodeURIComponent(clientProductId)}`,
+    {
+      method: 'DELETE',
+    }
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(
+      data.message || 'No se pudo eliminar el producto.'
+    )
+  }
+
+  return data
 }

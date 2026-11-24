@@ -7,6 +7,7 @@ const {
   updateProduct,
   deactivateProduct,
   activateProduct,
+  deleteProduct,
 } = require("../controllers/productController");
 
 const router = express.Router();
@@ -14,7 +15,7 @@ const router = express.Router();
 // Crear un producto
 router.post("/", createProduct);
 
-// Consultar todos los productos
+// Consultar productos
 router.get("/", getProducts);
 
 // Actualizar un producto
@@ -25,5 +26,8 @@ router.patch("/:clientProductId/deactivate", deactivateProduct);
 
 // Activar un producto
 router.patch("/:clientProductId/activate", activateProduct);
+
+// Eliminar un producto
+router.delete("/:clientProductId", deleteProduct);
 
 module.exports = router;

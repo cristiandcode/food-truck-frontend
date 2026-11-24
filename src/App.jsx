@@ -17,6 +17,7 @@ import {
   createRemoteProduct,
   updateRemoteProduct,
   setRemoteProductActive,
+  deleteRemoteProduct,
 } from './services/productsService'
 
 import {
@@ -34,6 +35,11 @@ function normalizeProduct(product) {
     clientProductId:
       product.clientProductId || `lubinin-${product.id}`,
     active: product.active ?? true,
+    seniorDiscountEligible:
+      product.seniorDiscountEligible ?? false,
+    deleted: product.deleted ?? false,
+    deletedAt: product.deletedAt ?? null,
+    pendingDelete: product.pendingDelete ?? false,
     pendingSync: product.pendingSync ?? false,
   }
 }
@@ -254,7 +260,7 @@ function App() {
     }
 
     const pendingProducts = productsToSync.filter(
-      (product) => product.pendingSync
+      (product) => product.pendingSync || product.pendingDelete
     )
 
     if (pendingProducts.length === 0) {
@@ -270,7 +276,45 @@ function App() {
 
       const remoteProducts = await getRemoteProducts()
 
-      for (const product of pendingProducts) {
+      // Primero procesar las eliminaciones pendientes
+      const productsToDelete = pendingProducts.filter(
+        (product) => product.pendingDelete
+      )
+
+      for (const product of productsToDelete) {
+        await deleteRemoteProduct(product.clientProductId)
+
+        console.log(
+          `Producto eliminado de MongoDB: ${product.name}`
+        )
+
+        // Conservar el registro local, pero marcarlo como sincronizado
+        setProducts((currentProducts) =>
+          currentProducts.map((currentProduct) => {
+            if (
+              currentProduct.clientProductId !==
+              product.clientProductId
+            ) {
+              return currentProduct
+            }
+
+            return {
+              ...currentProduct,
+              deleted: true,
+              active: false,
+              pendingDelete: false,
+              pendingSync: false,
+            }
+          })
+        )
+      }
+
+      // Después procesar las altas y modificaciones pendientes
+      const productsToUpdate = pendingProducts.filter(
+        (product) => !product.pendingDelete && !product.deleted
+      )
+
+      for (const product of productsToUpdate) {
         const remoteProduct = remoteProducts.find(
           (item) =>
             (item.clientProductId ||
@@ -307,7 +351,11 @@ function App() {
               return currentProduct
             }
 
-            if (hasProductChanges(product, currentProduct)) {
+            if (
+              currentProduct.deleted ||
+              currentProduct.pendingDelete ||
+              hasProductChanges(product, currentProduct)
+            ) {
               return currentProduct
             }
 
@@ -355,15 +403,20 @@ function App() {
           `Respuesta de MongoDB: ${remoteProducts.length} productos encontrados.`
         )
 
+        const localProducts = getSavedProducts()
+
+        // Conservar siempre los registros de productos eliminados
+        const deletedLocalProducts = localProducts.filter(
+          (product) => product.deleted
+        )
+
         if (remoteProducts.length > 0) {
           const normalizedRemoteProducts =
             remoteProducts.map(normalizeProduct)
 
-          const localProducts = getSavedProducts()
-
           // Conservar los cambios locales pendientes
           const pendingLocalProducts = localProducts.filter(
-            (product) => product.pendingSync
+            (product) => product.pendingSync && !product.deleted
           )
 
           const mergedProducts = [
@@ -376,6 +429,7 @@ function App() {
                 )
             ),
             ...pendingLocalProducts,
+            ...deletedLocalProducts,
           ]
 
           setProducts(mergedProducts)
@@ -390,13 +444,16 @@ function App() {
         }
 
         // Si MongoDB está vacío, recuperar catálogo local
-        const localProducts = getSavedProducts()
-
-        console.log(
-          `MongoDB vacío. Se migrarán ${localProducts.length} productos.`
+        // y migrar únicamente los productos no eliminados
+        const productsToMigrate = localProducts.filter(
+          (product) => !product.deleted
         )
 
-        for (const product of localProducts) {
+        console.log(
+          `MongoDB vacío. Se migrarán ${productsToMigrate.length} productos.`
+        )
+
+        for (const product of productsToMigrate) {
           console.log(`Enviando producto: ${product.name}`)
 
           const savedProduct = await createRemoteProduct(product)
@@ -404,13 +461,44 @@ function App() {
           console.log(
             `Producto guardado: ${savedProduct?.name || product.name}`
           )
+
+          setProducts((currentProducts) =>
+            currentProducts.map((currentProduct) => {
+              if (
+                currentProduct.clientProductId !==
+                product.clientProductId
+              ) {
+                return currentProduct
+              }
+
+              return {
+                ...currentProduct,
+                pendingSync: false,
+              }
+            })
+          )
         }
 
-        setProducts(localProducts)
+        setProducts([
+          ...productsToMigrate.map((product) => ({
+            ...product,
+            pendingSync: false,
+          })),
+          ...deletedLocalProducts,
+        ])
 
         console.log(
-          `Migración finalizada: ${localProducts.length} productos.`
+          `Migración finalizada: ${productsToMigrate.length} productos.`
         )
+
+        // Procesar también posibles eliminaciones pendientes
+        await syncPendingProducts([
+          ...productsToMigrate.map((product) => ({
+            ...product,
+            pendingSync: false,
+          })),
+          ...deletedLocalProducts,
+        ])
       } catch (error) {
         console.error(
           'ERROR AL CARGAR O MIGRAR PRODUCTOS:',
@@ -424,16 +512,18 @@ function App() {
     }
   }, [isAuthenticated])
 
-  // Guardar cambios del catálogo y sincronizarlos
+  // Guardar cambios del catálogo y detectar productos eliminados
   const handleProductsChange = (updatedProducts) => {
     const previousProducts = products
 
-    const normalizedProducts = updatedProducts.map(
+    const normalizedUpdatedProducts = updatedProducts.map(
       (product) => {
         const normalizedProduct = normalizeProduct(product)
 
         const previousProduct = previousProducts.find(
-          (item) => item.id === normalizedProduct.id
+          (item) =>
+            item.clientProductId ===
+            normalizedProduct.clientProductId
         )
 
         const hasChanges = previousProduct
@@ -451,7 +541,41 @@ function App() {
       }
     )
 
-    setProducts(normalizedProducts)
+    // Identificar productos que estaban en el catálogo
+    // y ya no aparecen en la lista recibida
+    const updatedProductIds = new Set(
+      normalizedUpdatedProducts.map(
+        (product) => product.clientProductId
+      )
+    )
+
+    const newlyDeletedProducts = previousProducts
+      .filter(
+        (product) =>
+          !product.deleted &&
+          !updatedProductIds.has(product.clientProductId)
+      )
+      .map((product) => ({
+        ...product,
+        active: false,
+        deleted: true,
+        deletedAt: new Date().toISOString(),
+        pendingDelete: true,
+        pendingSync: false,
+      }))
+
+    // Mantener los registros eliminados anteriores
+    const existingDeletedProducts = previousProducts.filter(
+      (product) => product.deleted
+    )
+
+    const mergedProducts = [
+      ...normalizedUpdatedProducts,
+      ...existingDeletedProducts,
+      ...newlyDeletedProducts,
+    ]
+
+    setProducts(mergedProducts)
 
     if (!navigator.onLine) {
       console.log(
@@ -461,7 +585,7 @@ function App() {
     }
 
     if (isAuthenticated) {
-      syncPendingProducts(normalizedProducts)
+      syncPendingProducts(mergedProducts)
     }
   }
 
@@ -534,6 +658,19 @@ function App() {
       window.removeEventListener('online', handleOnline)
     }
   }, [isAuthenticated])
+
+  // Productos visibles: los eliminados no aparecen en el TPV ni en el catálogo
+  const visibleProducts = products.filter(
+    (product) => !product.deleted
+  )
+
+  // Mantener identificadores únicos aunque se elimine el producto con ID más alto
+  const nextProductId =
+    products.reduce(
+      (maximum, product) =>
+        Math.max(maximum, Number(product.id) || 0),
+      0
+    ) + 1
 
   // Pantalla de acceso
   if (!isAuthenticated) {
@@ -625,7 +762,7 @@ function App() {
 
       {activePage === 'pos' && (
         <POS
-          products={products}
+          products={visibleProducts}
           onUpdateSafetyChange={handleUpdateSafetyChange}
         />
       )}
@@ -636,7 +773,8 @@ function App() {
 
       {activePage === 'products' && (
         <Products
-          products={products}
+          products={visibleProducts}
+          nextProductId={nextProductId}
           onProductsChange={handleProductsChange}
         />
       )}
