@@ -1,3 +1,4 @@
+
 import { authenticatedFetch } from './authService'
 
 const API_URL =
@@ -63,9 +64,6 @@ export async function createSale(sale) {
     throw error
   }
 
-  // Sin una respuesta válida no se puede confirmar que la venta
-  // quedó guardada: se trata como error y se reintentará.
-  // Es seguro porque el backend evita duplicados.
   if (!data) {
     const error = new Error(
       'Respuesta del servidor no válida al registrar la venta.'
@@ -113,7 +111,6 @@ export async function cancelRemoteSale(clientSaleId, cancelledAt) {
 }
 
 // Modificar el método de pago de una venta ya registrada en MongoDB.
-// Para efectivo, received contiene el importe entregado por el cliente.
 export async function updateRemoteSalePayment(clientSaleId, paymentData) {
   const { response, data } = await requestJson(
     `${API_URL}/api/sales/${encodeURIComponent(clientSaleId)}/payment`,
@@ -169,4 +166,36 @@ export async function getRemoteSales() {
   }
 
   return data.sales || []
+}
+
+// Eliminar todas las ventas de MongoDB.
+// Esta operación se invoca desde syncService, que coordina
+// primero las sincronizaciones y el historial local.
+export async function deleteAllRemoteSales() {
+  const { response, data } = await requestJson(
+    `${API_URL}/api/sales/all`,
+    {
+      method: 'DELETE',
+    }
+  )
+
+  if (!response.ok) {
+    const error = new Error(
+      data?.message || 'No se pudo eliminar el historial de ventas.'
+    )
+
+    error.status = response.status
+    throw error
+  }
+
+  if (!data || data.success !== true) {
+    const error = new Error(
+      'El servidor no confirmó la eliminación del historial.'
+    )
+
+    error.status = response.status
+    throw error
+  }
+
+  return data
 }

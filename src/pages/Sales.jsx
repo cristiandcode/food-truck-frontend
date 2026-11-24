@@ -1,7 +1,12 @@
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { getRemoteSales, updateRemoteSalePayment } from '../services/salesService'
-import { retryReviewSale, cancelSale } from '../services/syncService'
+import {
+  retryReviewSale,
+  cancelSale,
+  clearAllSalesHistory,
+} from '../services/syncService'
 
 const STORAGE_KEY = 'lubinin_sales'
 
@@ -154,6 +159,7 @@ function CancelBadge({ sale }) {
     </span>
   )
 }
+
 function formatSaleNumber(sale) {
   const number = `#${String(sale.saleNumber).padStart(4, '0')}`
 
@@ -267,9 +273,9 @@ function HistorySaleTicket({ sale }) {
 
         <div className="my-3 border-t border-dashed border-black" />
 
-          <p>
-      Venta: {formatSaleNumber(sale)}
-    </p>
+        <p>
+          Venta: {formatSaleNumber(sale)}
+        </p>
 
         <p>
           Fecha: {formatTicketDate(sale.date)}
@@ -404,7 +410,16 @@ function Sales() {
   const [paymentError, setPaymentError] = useState('')
   const [paymentSuccess, setPaymentSuccess] = useState('')
 
+  // Estados para eliminar todo el historial.
+  const [showDeleteAllConfirmation, setShowDeleteAllConfirmation] = useState(false)
+  const [isDeletingAll, setIsDeletingAll] = useState(false)
+  const [deleteAllError, setDeleteAllError] = useState('')
+
   const isRefreshingRef = useRef(false)
+
+  // Evita que una actualización iniciada antes del borrado
+  // vuelva a mostrar ventas antiguas cuando termine.
+  const isDeletingAllRef = useRef(false)
 
   const closeDetail = () => {
     setSelectedSale(null)
@@ -413,6 +428,72 @@ function Sales() {
     setShowPaymentEditor(false)
     setPaymentError('')
     setPaymentSuccess('')
+  }
+
+  // Abrir la confirmación de borrado total.
+  const handleOpenDeleteAllConfirmation = () => {
+    if (isDeletingAll || !isOnline) return
+
+    setDeleteAllError('')
+    setShowDeleteAllConfirmation(true)
+  }
+
+  // Eliminar todas las ventas del servidor y del dispositivo.
+  const handleDeleteAllSales = async () => {
+    if (isDeletingAll || isDeletingAllRef.current) return
+
+    if (!navigator.onLine) {
+      setDeleteAllError(
+        'Necesitás conexión a Internet para eliminar todo el historial.'
+      )
+      return
+    }
+
+    isDeletingAllRef.current = true
+    setIsDeletingAll(true)
+    setDeleteAllError('')
+
+    try {
+      const result = await clearAllSalesHistory()
+
+      if (!result?.cleared) {
+        const errorMessage =
+          typeof result?.error === 'string'
+            ? result.error
+            : result?.error?.message
+
+        setDeleteAllError(
+          errorMessage ||
+          'No se pudo eliminar el historial. Tus ventas se mantienen guardadas.'
+        )
+
+        return
+      }
+
+      // El servicio confirmó que el historial local y remoto
+      // se ha eliminado correctamente.
+      setSales([])
+      closeDetail()
+
+      setShowDeleteAllConfirmation(false)
+      setDeleteAllError('')
+
+      console.log(
+        'Historial eliminado correctamente.',
+        'Ventas eliminadas:',
+        result.deletedCount ?? 0
+      )
+    } catch (error) {
+      console.error('Error eliminando todo el historial:', error)
+
+      setDeleteAllError(
+        error?.message ||
+        'Ocurrió un error al eliminar el historial. Intentá nuevamente.'
+      )
+    } finally {
+      isDeletingAllRef.current = false
+      setIsDeletingAll(false)
+    }
   }
 
   const handleOpenPaymentEditor = () => {
@@ -513,6 +594,10 @@ function Sales() {
   }
 
   const refreshSales = async () => {
+    // No iniciar ni completar una actualización mientras
+    // se está eliminando todo el historial.
+    if (isDeletingAllRef.current) return
+
     const initialLocalSales = getSavedSales()
     setSales(initialLocalSales)
 
@@ -531,12 +616,20 @@ function Sales() {
 
     try {
       const remoteSales = await getRemoteSales()
+
+      // Si comenzó un borrado mientras esperábamos la respuesta,
+      // descartamos los datos recibidos.
+      if (isDeletingAllRef.current) return
+
       const latestLocalSales = getSavedSales()
 
       const combinedSales = mergeSales(
         latestLocalSales,
         remoteSales
       )
+
+      // Última comprobación antes de actualizar la pantalla.
+      if (isDeletingAllRef.current) return
 
       setSales(combinedSales)
       setIsOnline(true)
@@ -546,6 +639,8 @@ function Sales() {
       console.log('Ventas remotas:', remoteSales.length)
       console.log('Ventas unificadas:', combinedSales.length)
     } catch (error) {
+      if (isDeletingAllRef.current) return
+
       const latestLocalSales = getSavedSales()
       setSales(latestLocalSales)
 
@@ -621,7 +716,11 @@ function Sales() {
     const handleOffline = () => {
       setIsOnline(false)
       setIsRefreshing(false)
-      setSales(getSavedSales())
+
+      if (!isDeletingAllRef.current) {
+        setSales(getSavedSales())
+      }
+
       console.log('Sin conexión. Se mantiene el historial local.')
     }
 
@@ -913,18 +1012,29 @@ function Sales() {
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={refreshSales}
-            disabled={isRefreshing || !isOnline}
-            className="rounded-xl border border-[#e8e4da] bg-white px-4 py-3 text-sm font-semibold transition hover:bg-[#f5f3ee] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {!isOnline
-              ? 'Sin conexión'
-              : isRefreshing
-                ? 'Actualizando...'
-                : '↻ Actualizar'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleOpenDeleteAllConfirmation}
+              disabled={!isOnline || isDeletingAll}
+              className="rounded-xl border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isDeletingAll ? 'Eliminando...' : '🗑 Eliminar todo el historial'}
+            </button>
+
+            <button
+              type="button"
+              onClick={refreshSales}
+              disabled={isRefreshing || !isOnline || isDeletingAll}
+              className="rounded-xl border border-[#e8e4da] bg-white px-4 py-3 text-sm font-semibold transition hover:bg-[#f5f3ee] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {!isOnline
+                ? 'Sin conexión'
+                : isRefreshing
+                  ? 'Actualizando...'
+                  : '↻ Actualizar'}
+            </button>
+          </div>
         </div>
 
         {/* Filtros */}
@@ -1322,7 +1432,7 @@ function Sales() {
                           <p className={`font-bold text-[#26332d] ${
                             cancelled ? 'text-[#89877e] line-through' : ''
                           }`}>
-                           Venta {formatSaleNumber(sale)}
+                            Venta {formatSaleNumber(sale)}
                           </p>
 
                           <p className="mt-1 text-sm text-[#89877e]">
@@ -1374,7 +1484,7 @@ function Sales() {
               <div className="mb-6 flex items-center justify-between">
                 <div>
                   <h3 className="text-xl font-extrabold text-[#26332d]">
-                   Venta {formatSaleNumber(selectedSale)}
+                    Venta {formatSaleNumber(selectedSale)}
                   </h3>
 
                   <p className="mt-1 text-sm text-[#89877e]">
@@ -1731,6 +1841,91 @@ function Sales() {
               >
                 Cerrar detalle
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Confirmación de eliminación de todo el historial */}
+        {showDeleteAllConfirmation && (
+          <div
+            className="no-print fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4"
+            onClick={() => {
+              if (isDeletingAll) return
+              setShowDeleteAllConfirmation(false)
+              setDeleteAllError('')
+            }}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-red-100 text-2xl">
+                  🗑️
+                </div>
+
+                <div>
+                  <h3 className="text-xl font-extrabold text-[#26332d]">
+                    Eliminar todo el historial
+                  </h3>
+
+                  <p className="mt-1 text-sm text-[#89877e]">
+                    Esta acción es permanente.
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-red-50 p-4 text-sm text-red-800">
+                <p className="font-bold">
+                  ¿Estás seguro de que querés eliminar todas las ventas?
+                </p>
+
+                <p className="mt-2">
+                  Se eliminarán del servidor y de este dispositivo todas las operaciones, incluidas las ventas canceladas y las pendientes de sincronización.
+                </p>
+
+                <p className="mt-2 font-bold">
+                  Esta acción no se puede deshacer.
+                </p>
+              </div>
+
+              {deleteAllError && (
+                <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+                  {deleteAllError}
+                </div>
+              )}
+
+              <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isDeletingAll) return
+                    setShowDeleteAllConfirmation(false)
+                    setDeleteAllError('')
+                  }}
+                  disabled={isDeletingAll}
+                  className="flex-1 rounded-xl border border-[#e8e4da] px-4 py-3 text-sm font-bold text-[#66685f] transition hover:bg-[#f5f3ee] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  No, conservar ventas
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDeleteAllSales}
+                  disabled={isDeletingAll || !isOnline}
+                  className="flex-1 rounded-xl bg-red-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isDeletingAll
+                    ? 'Eliminando historial...'
+                    : 'Sí, eliminar todo'}
+                </button>
+              </div>
+
+              {!isOnline && (
+                <p className="mt-3 text-center text-xs font-medium text-amber-700">
+                  Necesitás conexión a Internet para realizar esta operación.
+                </p>
+              )}
             </div>
           </div>
         )}

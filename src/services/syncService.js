@@ -1,5 +1,9 @@
 
-import { createSale, cancelRemoteSale } from './salesService'
+import {
+  createSale,
+  cancelRemoteSale,
+  deleteAllRemoteSales,
+} from './salesService'
 
 const STORAGE_KEY = 'lubinin_sales'
 
@@ -8,6 +12,10 @@ const REVIEW_STATUS = 'needs-review'
 
 // Evitar que una misma venta se sincronice simultáneamente.
 const salesInProgress = new Set()
+
+// Coordinación para evitar sincronizaciones durante el borrado total.
+let historyClearInProgress = false
+let activeSyncOperations = 0
 
 // Recuperar ventas guardadas localmente.
 function getLocalSales() {
@@ -151,8 +159,117 @@ function getPendingCancellationsCount() {
   }
 }
 
+// Esperar a que terminen las sincronizaciones ya iniciadas.
+function waitForActiveSyncOperations() {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (activeSyncOperations === 0) {
+        resolve()
+        return
+      }
+
+      setTimeout(check, 50)
+    }
+
+    check()
+  })
+}
+
+// Eliminar todo el historial local y remoto.
+// Si el servidor falla, se restaura el historial local anterior.
+export async function clearAllSalesHistory() {
+  if (!navigator.onLine) {
+    return {
+      cleared: false,
+      reason: 'offline',
+      error: new Error(
+        'Necesitas conexión a Internet para eliminar todo el historial.'
+      ),
+    }
+  }
+
+  if (historyClearInProgress) {
+    return {
+      cleared: false,
+      reason: 'in-progress',
+    }
+  }
+
+  historyClearInProgress = true
+
+  let previousSales = []
+
+  try {
+    // Capturar el historial local antes de modificarlo.
+    previousSales = getLocalSales()
+
+    // Esperar a que terminen las operaciones que ya estaban enviándose.
+    await waitForActiveSyncOperations()
+
+    // Vaciar primero el almacenamiento local para impedir que
+    // las ventas antiguas vuelvan a sincronizarse durante el borrado.
+    saveLocalSales([])
+
+    // Eliminar el historial del servidor.
+    const response = await deleteAllRemoteSales()
+
+    return {
+      cleared: true,
+      deletedCount: response.deletedCount || 0,
+    }
+  } catch (error) {
+    console.error('Error eliminando todo el historial:', error)
+
+    // Si el servidor no confirma el borrado, recuperar las ventas
+    // anteriores y conservar también cualquier venta nueva que
+    // se haya guardado localmente durante la operación.
+    try {
+      const currentSales = getLocalSales()
+      const restoredSales = new Map()
+
+      for (const sale of previousSales) {
+        const id = getSaleId(sale)
+
+        if (id !== undefined && id !== null) {
+          restoredSales.set(String(id), sale)
+        }
+      }
+
+      for (const sale of currentSales) {
+        const id = getSaleId(sale)
+
+        if (id !== undefined && id !== null) {
+          restoredSales.set(String(id), sale)
+        }
+      }
+
+      saveLocalSales(Array.from(restoredSales.values()))
+    } catch (restoreError) {
+      console.error(
+        'No se pudo restaurar el historial local:',
+        restoreError
+      )
+    }
+
+    return {
+      cleared: false,
+      reason: 'error',
+      error,
+    }
+  } finally {
+    historyClearInProgress = false
+  }
+}
+
 // Sincronizar una venta concreta.
 export async function syncSale(sale) {
+  if (historyClearInProgress) {
+    return {
+      synced: false,
+      reason: 'history-clearing',
+    }
+  }
+
   if (!navigator.onLine) {
     return {
       synced: false,
@@ -169,7 +286,6 @@ export async function syncSale(sale) {
     }
   }
 
-  // Las ventas rechazadas no se reintentan automáticamente.
   if (sale?.syncStatus === REVIEW_STATUS) {
     return {
       synced: false,
@@ -177,7 +293,6 @@ export async function syncSale(sale) {
     }
   }
 
-  // Evitar sincronizaciones simultáneas de la misma venta.
   if (salesInProgress.has(saleId)) {
     return {
       synced: false,
@@ -186,6 +301,7 @@ export async function syncSale(sale) {
   }
 
   salesInProgress.add(saleId)
+  activeSyncOperations += 1
 
   try {
     const response = await createSale({
@@ -196,8 +312,6 @@ export async function syncSale(sale) {
     const serverSale = response?.sale
     const serverFields = getServerSaleFields(serverSale)
 
-    // Incorporar los datos confirmados por MongoDB,
-    // pero leyendo primero la versión local más reciente.
     updateLocalSale(saleId, (localSale) => {
       const wasCancelledLocally =
         localSale.status === 'cancelled'
@@ -208,8 +322,6 @@ export async function syncSale(sale) {
       return {
         ...serverFields,
 
-        // Nunca permitir que una respuesta del servidor
-        // reactive una venta cancelada localmente.
         ...(wasCancelledLocally
           ? {
               status: 'cancelled',
@@ -221,7 +333,6 @@ export async function syncSale(sale) {
             }
           : {}),
 
-        // Conservar el identificador original del dispositivo.
         id: localSale.id || localSale.clientSaleId || saleId,
 
         syncStatus: 'synced',
@@ -236,8 +347,6 @@ export async function syncSale(sale) {
   } catch (error) {
     console.error('Error sincronizando venta:', error)
 
-    // Si la sesión caducó o no está autorizada, no modificar
-    // la venta local ni registrar un intento de sincronización.
     if (error?.status === 401) {
       return {
         synced: false,
@@ -248,9 +357,6 @@ export async function syncSale(sale) {
 
     const permanent = isPermanentError(error)
 
-    // Guardar el fallo para consultarlo después.
-    // Si el servidor rechazó los datos (400/422), la venta
-    // se marca para revisión. En cualquier otro caso sigue pendiente.
     try {
       updateLocalSale(saleId, (localSale) => ({
         syncAttempts: (localSale.syncAttempts || 0) + 1,
@@ -269,11 +375,19 @@ export async function syncSale(sale) {
     }
   } finally {
     salesInProgress.delete(saleId)
+    activeSyncOperations -= 1
   }
 }
 
 // Enviar al servidor la cancelación de una venta ya sincronizada.
 async function syncCancellation(saleId) {
+  if (historyClearInProgress) {
+    return {
+      synced: false,
+      reason: 'history-clearing',
+    }
+  }
+
   if (!navigator.onLine) {
     return { synced: false, reason: 'offline' }
   }
@@ -285,6 +399,7 @@ async function syncCancellation(saleId) {
   }
 
   salesInProgress.add(key)
+  activeSyncOperations += 1
 
   try {
     const sale = getLocalSales().find(
@@ -302,7 +417,6 @@ async function syncCancellation(saleId) {
   } catch (error) {
     console.error('Error sincronizando cancelación:', error)
 
-    // No modificar la cancelación pendiente si falta autorización.
     if (error?.status === 401) {
       return {
         synced: false,
@@ -313,8 +427,6 @@ async function syncCancellation(saleId) {
 
     try {
       if (error?.status === 404) {
-        // El servidor no tiene la venta: se vuelve a enviar completa
-        // (ya con estado cancelada) en el siguiente ciclo.
         updateLocalSale(saleId, () => ({
           syncStatus: 'pending',
           lastCancelError:
@@ -333,11 +445,19 @@ async function syncCancellation(saleId) {
     return { synced: false, reason: 'error', error }
   } finally {
     salesInProgress.delete(key)
+    activeSyncOperations -= 1
   }
 }
 
 // Cancelar una venta: se guarda primero en local y después se envía.
 export async function cancelSale(sale) {
+  if (historyClearInProgress) {
+    return {
+      cancelled: false,
+      reason: 'history-clearing',
+    }
+  }
+
   const saleId = getSaleId(sale)
 
   if (!saleId) {
@@ -370,8 +490,6 @@ export async function cancelSale(sale) {
         cancelSynced: false,
       }))
     } else {
-      // Venta que solo existe en el servidor (por ejemplo,
-      // hecha en otro dispositivo): guardar una copia local cancelada.
       const {
         _id,
         __v,
@@ -399,8 +517,6 @@ export async function cancelSale(sale) {
     return { cancelled: false, reason: 'storage-error' }
   }
 
-  // Intentar enviarla ahora. Si falla o no hay conexión,
-  // queda pendiente y se reintenta automáticamente.
   try {
     const latest = getLocalSales().find(
       (localSale) => sameSaleId(getSaleId(localSale), realId)
@@ -412,7 +528,6 @@ export async function cancelSale(sale) {
     }
 
     if (latest && isPendingSale(latest)) {
-      // La venta aún no estaba en el servidor: se envía ya cancelada.
       const result = await syncSale(latest)
       return { cancelled: true, synced: result.synced }
     }
@@ -425,6 +540,13 @@ export async function cancelSale(sale) {
 
 // Reintentar manualmente una venta marcada para revisión.
 export async function retryReviewSale(saleId) {
+  if (historyClearInProgress) {
+    return {
+      synced: false,
+      reason: 'history-clearing',
+    }
+  }
+
   const normalizedId = String(saleId)
 
   let sale
@@ -460,6 +582,16 @@ export async function retryReviewSale(saleId) {
 
 // Sincronizar todas las ventas pendientes.
 export async function syncPendingSales() {
+  if (historyClearInProgress) {
+    return {
+      synced: 0,
+      pending: getPendingSalesCount(),
+      review: getReviewSalesCount(),
+      cancellations: getPendingCancellationsCount(),
+      clearing: true,
+    }
+  }
+
   if (!navigator.onLine) {
     return {
       synced: 0,
@@ -477,27 +609,28 @@ export async function syncPendingSales() {
     let unauthorized = false
 
     for (const sale of pendingSales) {
+      if (historyClearInProgress) break
+
       const result = await syncSale(sale)
 
       if (result.synced) {
         syncedCount += 1
       }
 
-      // Detener el ciclo si la sesión caducó.
       if (result.reason === 'unauthorized') {
         unauthorized = true
         break
       }
     }
 
-    // Procesar cancelaciones pendientes solamente si seguimos
-    // teniendo una sesión autorizada.
-    if (!unauthorized) {
+    if (!unauthorized && !historyClearInProgress) {
       const salesToCancel = getLocalSales().filter(
         isCancellationPending
       )
 
       for (const sale of salesToCancel) {
+        if (historyClearInProgress) break
+
         const result = await syncCancellation(getSaleId(sale))
 
         if (result.reason === 'unauthorized') {

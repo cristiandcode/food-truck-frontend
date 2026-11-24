@@ -1,3 +1,4 @@
+
 const Sale = require("../models/Sale");
 const Product = require("../models/Product");
 
@@ -15,8 +16,6 @@ const createSale = async (req, res) => {
   try {
     const saleData = req.body;
 
-    // Aceptamos el identificador original del TPV (id)
-    // o el nombre utilizado por el backend (clientSaleId).
     const clientSaleId = saleData.clientSaleId || saleData.id;
 
     if (!clientSaleId) {
@@ -25,8 +24,6 @@ const createSale = async (req, res) => {
       });
     }
 
-    // Comprobar si la venta ya existe.
-    // Permite reintentar una sincronización sin duplicarla.
     const existingSale = await Sale.findOne({ clientSaleId });
 
     if (existingSale) {
@@ -37,7 +34,6 @@ const createSale = async (req, res) => {
       });
     }
 
-    // Validar los productos de la venta
     if (
       !Array.isArray(saleData.items) ||
       saleData.items.length === 0
@@ -47,7 +43,6 @@ const createSale = async (req, res) => {
       });
     }
 
-    // Validar si el cliente solicita el descuento
     const isSeniorCustomer =
       saleData.isSeniorCustomer === true;
 
@@ -60,7 +55,6 @@ const createSale = async (req, res) => {
       });
     }
 
-    // Validar los importes y cantidades recibidos
     for (const item of saleData.items) {
       const price = Number(item.price);
       const quantity = Number(item.quantity);
@@ -77,7 +71,6 @@ const createSale = async (req, res) => {
       }
     }
 
-    // Obtener identificadores de los productos
     const clientProductIds = saleData.items
       .map((item) => item.clientProductId)
       .filter(Boolean)
@@ -87,8 +80,6 @@ const createSale = async (req, res) => {
       .map((item) => Number(item.id))
       .filter((id) => Number.isInteger(id) && id > 0);
 
-    // Consultar la elegibilidad real en MongoDB.
-    // No confiamos en el valor enviado por el frontend.
     const databaseProducts = await Product.find({
       $or: [
         {
@@ -123,7 +114,6 @@ const createSale = async (req, res) => {
       );
     }
 
-    // Calcular subtotal y descuento en céntimos
     let subtotalCents = 0;
     let discountCents = 0;
 
@@ -134,7 +124,6 @@ const createSale = async (req, res) => {
 
       const numericId = Number(item.id);
 
-      // Priorizar el identificador estable compartido
       const databaseProduct =
         (clientProductId
           ? productsByClientId.get(clientProductId)
@@ -143,7 +132,6 @@ const createSale = async (req, res) => {
           ? productsByNumericId.get(numericId)
           : null);
 
-      // La elegibilidad siempre procede de MongoDB
       const eligible =
         databaseProduct?.seniorDiscountEligible === true;
 
@@ -152,7 +140,6 @@ const createSale = async (req, res) => {
 
       const lineSubtotalCents = priceCents * quantity;
 
-      // Aplicar el 5 % solamente si corresponde
       const lineDiscountCents =
         isSeniorCustomer && eligible
           ? Math.round(lineSubtotalCents * 0.05)
@@ -180,14 +167,12 @@ const createSale = async (req, res) => {
     const discountAmount = fromCents(discountCents);
     const total = fromCents(totalCents);
 
-    // Validar el método de pago
     if (!["cash", "card"].includes(saleData.paymentMethod)) {
       return res.status(400).json({
         message: "El método de pago no es válido.",
       });
     }
 
-    // Preparar los datos del pago usando el total calculado
     const received = Number(
       saleData.paymentDetails?.received
     );
@@ -215,20 +200,15 @@ const createSale = async (req, res) => {
       };
     }
 
-    // Preparar los datos para MongoDB.
-    // Los cálculos del frontend no se utilizan como fuente de verdad.
     const newSale = new Sale({
       ...saleData,
       clientSaleId,
-
       items: calculatedItems,
-
       subtotal,
       isSeniorCustomer,
       discountRate: isSeniorCustomer ? 5 : 0,
       discountAmount,
       total,
-
       paymentDetails,
     });
 
@@ -241,8 +221,6 @@ const createSale = async (req, res) => {
     });
 
   } catch (error) {
-    // Protección ante dos peticiones simultáneas
-    // con el mismo identificador.
     if (error.code === 11000) {
       try {
         const clientSaleId =
@@ -312,6 +290,29 @@ const getSales = async (req, res) => {
   }
 };
 
+// Eliminar todas las ventas del historial
+const deleteAllSales = async (req, res) => {
+  try {
+    const result = await Sale.deleteMany({});
+
+    return res.status(200).json({
+      success: true,
+      message: "El historial de ventas se ha eliminado correctamente.",
+      deletedCount: result.deletedCount || 0,
+    });
+  } catch (error) {
+    console.error(
+      "Error eliminando el historial de ventas:",
+      error.message
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "No se pudo eliminar el historial de ventas.",
+    });
+  }
+};
+
 // Cancelar una venta (no se borra: se marca como cancelada)
 const cancelSale = async (req, res) => {
   try {
@@ -323,7 +324,6 @@ const cancelSale = async (req, res) => {
       });
     }
 
-    // Conservar la fecha original de la cancelación si el TPV la envía
     let cancelledAt = new Date();
 
     if (req.body && req.body.cancelledAt) {
@@ -334,7 +334,6 @@ const cancelSale = async (req, res) => {
       }
     }
 
-    // Operación atómica: solo cancela si todavía no está cancelada.
     const updatedSale = await Sale.findOneAndUpdate(
       {
         clientSaleId,
@@ -357,7 +356,6 @@ const cancelSale = async (req, res) => {
       });
     }
 
-    // No se actualizó nada: puede estar ya cancelada o no existir
     const existingSale = await Sale.findOne({ clientSaleId });
 
     if (!existingSale) {
@@ -438,15 +436,12 @@ const updateSalePaymentMethod = async (req, res) => {
         change: fromCents(receivedCents - totalCents),
       };
     } else {
-      // Al pasar a tarjeta se limpian los datos propios del pago en efectivo.
       paymentDetails = {
         received: 0,
         change: 0,
       };
     }
 
-    // La condición de estado evita modificar una venta si se cancela
-    // mientras se procesa esta petición.
     const updatedSale = await Sale.findOneAndUpdate(
       {
         clientSaleId,
@@ -507,6 +502,7 @@ const updateSalePaymentMethod = async (req, res) => {
 module.exports = {
   createSale,
   getSales,
+  deleteAllSales,
   cancelSale,
   updateSalePaymentMethod,
 };
