@@ -1,7 +1,7 @@
 
 function CategoryTabs({ categories, activeCategory, onChange }) {
   return (
-    <div className="mb-7 flex gap-2 overflow-x-auto pb-2">
+    <div className="mb-7 flex min-w-0 w-full gap-2 overflow-x-auto pb-2">
       {categories.map((category) => (
         <button
           key={category.id}

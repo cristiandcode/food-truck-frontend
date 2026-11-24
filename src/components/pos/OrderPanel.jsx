@@ -15,7 +15,7 @@ function OrderPanel({
   onCheckout,
 }) {
   return (
-    <aside className="flex min-h-[500px] flex-col border-t border-[#e8e4da] bg-white lg:border-l lg:border-t-0">
+    <aside className="flex min-w-0 w-full min-h-[500px] flex-col border-t border-[#e8e4da] bg-white lg:border-l lg:border-t-0">
 
       {/* Encabezado del pedido */}
       <div className="flex items-center justify-between border-b border-[#eeeae2] p-6">

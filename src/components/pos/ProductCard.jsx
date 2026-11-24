@@ -4,7 +4,7 @@ function ProductCard({ product, onAdd, isSelected }) {
     <button
       type="button"
       onClick={() => onAdd(product)}
-      className={`group relative flex min-h-44 flex-col justify-between rounded-2xl border p-4 text-left shadow-sm transition hover:-translate-y-1 hover:shadow-md ${
+      className={`group relative flex min-w-0 w-full min-h-44 flex-col justify-between rounded-2xl border p-4 text-left shadow-sm transition hover:-translate-y-1 hover:shadow-md ${
         isSelected
           ? 'border-green-500 bg-green-50 shadow-green-100'
           : 'border-[#e9e5dc] bg-white hover:border-[#d5ad70]'
@@ -18,7 +18,7 @@ function ProductCard({ product, onAdd, isSelected }) {
       )}
 
       <div
-        className={`flex h-20 w-full items-center justify-center rounded-xl text-5xl transition ${
+        className={`flex h-20 w-full min-w-0 items-center justify-center rounded-xl text-5xl transition ${
           isSelected
             ? 'bg-green-100'
             : 'bg-[#f7f5ef] group-hover:bg-[#f1eadb]'
@@ -27,8 +27,8 @@ function ProductCard({ product, onAdd, isSelected }) {
         {product.emoji}
       </div>
 
-      <div className="mt-4 w-full">
-        <p className="text-sm font-semibold leading-snug">
+      <div className="mt-4 w-full min-w-0">
+        <p className="break-words text-sm font-semibold leading-snug">
           {product.name}
         </p>
 

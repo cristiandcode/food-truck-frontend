@@ -115,7 +115,7 @@ function POS({ products, onUpdateSafetyChange = NOOP }) {
     total,
   } = useCart()
 
-  // NUEVO: informar a App.jsx cuándo es seguro actualizar la PWA.
+  // Informar a App.jsx cuándo es seguro actualizar la PWA.
   useEffect(() => {
     const isSafeToUpdate =
       cart.length === 0 &&
@@ -291,9 +291,12 @@ function POS({ products, onUpdateSafetyChange = NOOP }) {
   return (
     <div className="min-h-[calc(100vh-80px)]">
 
-      <main className="grid min-h-[calc(100vh-80px)] grid-cols-1 lg:grid-cols-[1fr_390px]">
+      {/* RESPONSIVE: minmax(0,1fr) evita que la primera columna
+          crezca más que el espacio disponible. */}
+      <main className="grid min-h-[calc(100vh-80px)] min-w-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_390px]">
 
-        <section className="p-5 lg:p-8">
+        {/* RESPONSIVE: min-w-0 permite encoger el contenido. */}
+        <section className="min-w-0 p-5 lg:p-8">
 
           <div className="mb-7">
             <h2 className="text-2xl font-bold">
