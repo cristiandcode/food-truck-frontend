@@ -40,20 +40,17 @@ const saleItemSchema = new mongoose.Schema(
       type: String,
     },
 
-    // Elegibilidad comprobada por el backend
     seniorDiscountEligible: {
       type: Boolean,
       default: false,
     },
 
-    // Descuento aplicado a esta línea
     discountAmount: {
       type: Number,
       default: 0,
       min: 0,
     },
 
-    // Importe final de esta línea
     lineTotal: {
       type: Number,
       default: 0,
@@ -63,6 +60,35 @@ const saleItemSchema = new mongoose.Schema(
   {
     _id: false,
     strict: false,
+  }
+);
+
+// Fotografía del consumo de ingredientes al realizar la venta
+const inventoryConsumptionSchema = new mongoose.Schema(
+  {
+    ingredientId: {
+      type: String,
+      required: true,
+    },
+
+    name: {
+      type: String,
+      required: true,
+    },
+
+    unit: {
+      type: String,
+      default: "unidad",
+    },
+
+    quantity: {
+      type: Number,
+      required: true,
+      min: 1,
+    },
+  },
+  {
+    _id: false,
   }
 );
 
@@ -89,7 +115,6 @@ const paymentDetailsSchema = new mongoose.Schema(
 // Modelo principal de ventas
 const saleSchema = new mongoose.Schema(
   {
-    // Identificador original generado por el TPV
     clientSaleId: {
       type: String,
       required: true,
@@ -101,7 +126,6 @@ const saleSchema = new mongoose.Schema(
       min: 1,
     },
 
-    // Fecha y hora originales de la operación
     date: {
       type: Date,
       required: true,
@@ -116,20 +140,23 @@ const saleSchema = new mongoose.Schema(
       },
     },
 
-    // Importe antes de aplicar descuentos
+    // Consumo de ingredientes calculado al confirmar la venta
+    inventoryConsumption: {
+      type: [inventoryConsumptionSchema],
+      default: [],
+    },
+
     subtotal: {
       type: Number,
       min: 0,
       default: 0,
     },
 
-    // Indica si el cliente es jubilado o pensionado
     isSeniorCustomer: {
       type: Boolean,
       default: false,
     },
 
-    // Porcentaje de descuento aplicado
     discountRate: {
       type: Number,
       default: 0,
@@ -137,14 +164,12 @@ const saleSchema = new mongoose.Schema(
       max: 5,
     },
 
-    // Importe total descontado
     discountAmount: {
       type: Number,
       default: 0,
       min: 0,
     },
 
-    // Total final después de descuentos
     total: {
       type: Number,
       required: true,
@@ -162,21 +187,17 @@ const saleSchema = new mongoose.Schema(
       default: () => ({}),
     },
 
-    // Estado de la venta. Las ventas anteriores no lo tienen
-    // y se consideran completadas.
     status: {
       type: String,
       enum: ["completed", "cancelled"],
       default: "completed",
     },
 
-    // Fecha y hora de la cancelación
     cancelledAt: {
       type: Date,
       default: null,
     },
 
-    // Identificador del dispositivo que realizó la venta
     deviceId: {
       type: String,
       default: null,
@@ -188,7 +209,6 @@ const saleSchema = new mongoose.Schema(
 );
 
 // Evita registrar dos veces la misma venta
-// cuando se reintenta una sincronización.
 saleSchema.index(
   { clientSaleId: 1 },
   { unique: true }

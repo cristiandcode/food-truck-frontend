@@ -4,6 +4,7 @@ function Topbar({ activePage, onNavigate }) {
     { id: 'pos', label: 'TPV', icon: '🛒' },
     { id: 'sales', label: 'Ventas', icon: '📋' },
     { id: 'products', label: 'Productos', icon: '📦' },
+    { id: 'inventory', label: 'Almacén', icon: '🏬' },
   ]
 
   return (

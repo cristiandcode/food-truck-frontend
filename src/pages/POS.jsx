@@ -13,6 +13,8 @@ import { syncSale } from '../services/syncService'
 
 const STORAGE_KEY = 'lubinin_sales'
 const DEVICE_STORAGE_KEY = 'lubinin_device_id'
+const INGREDIENTS_STORAGE_KEY = 'lubinin_inventory_ingredients'
+const RECIPES_STORAGE_KEY = 'lubinin_inventory_recipes'
 const NOOP = () => {}
 
 // Obtener o crear un identificador permanente para este dispositivo.
@@ -33,7 +35,11 @@ function getDeviceId() {
 
     return deviceId
   } catch (error) {
-    console.error('Error al recuperar el identificador del dispositivo:', error)
+    console.error(
+      'Error al recuperar el identificador del dispositivo:',
+      error
+    )
+
     throw new Error('No se pudo identificar este dispositivo.')
   }
 }
@@ -52,6 +58,92 @@ function getSavedSales() {
     console.error('Error al recuperar las ventas:', error)
     return []
   }
+}
+
+// Recuperar datos del almacén de forma segura.
+function getInventoryStorage(key, fallback) {
+  try {
+    const saved = localStorage.getItem(key)
+
+    if (!saved) return fallback
+
+    const parsed = JSON.parse(saved)
+
+    return parsed ?? fallback
+  } catch (error) {
+    console.error(`Error al recuperar ${key}:`, error)
+    return fallback
+  }
+}
+
+// Calcular una fotografía del consumo de ingredientes de la venta.
+function calculateInventoryConsumption(cartItems) {
+  const recipes = getInventoryStorage(RECIPES_STORAGE_KEY, {})
+  const ingredients = getInventoryStorage(
+    INGREDIENTS_STORAGE_KEY,
+    []
+  )
+
+  if (
+    !recipes ||
+    typeof recipes !== 'object' ||
+    !Array.isArray(ingredients)
+  ) {
+    return []
+  }
+
+  const ingredientMap = new Map(
+    ingredients.map((ingredient) => [
+      String(ingredient.id),
+      ingredient,
+    ])
+  )
+
+  const consumptionMap = new Map()
+
+  cartItems.forEach((cartItem) => {
+    const productId = String(cartItem.id)
+    const recipe = recipes[productId]
+
+    if (!Array.isArray(recipe)) return
+
+    const soldQuantity = Number(cartItem.quantity)
+
+    if (!Number.isFinite(soldQuantity) || soldQuantity <= 0) {
+      return
+    }
+
+    recipe.forEach((recipeItem) => {
+      const ingredientId = String(recipeItem.ingredientId)
+      const ingredient = ingredientMap.get(ingredientId)
+      const recipeQuantity = Number(recipeItem.quantity)
+
+      if (
+        !ingredient ||
+        !Number.isInteger(recipeQuantity) ||
+        recipeQuantity < 1
+      ) {
+        return
+      }
+
+      const consumedQuantity = recipeQuantity * soldQuantity
+
+      const existing = consumptionMap.get(ingredientId)
+
+      if (existing) {
+        existing.quantity += consumedQuantity
+      } else {
+        consumptionMap.set(ingredientId, {
+          ingredientId,
+          name: ingredient.name,
+          unit: ingredient.unit || 'unidad',
+          quantity: consumedQuantity,
+        })
+      }
+    })
+  })
+
+  return Array.from(consumptionMap.values())
 }
 
 // Guardar en la venta solo los datos necesarios del producto.
@@ -186,6 +278,10 @@ function POS({ products, onUpdateSafetyChange = NOOP }) {
         toSaleItem(item, isSeniorCustomer)
       )
 
+      // Calcular el consumo de ingredientes según las recetas actuales.
+      const inventoryConsumption =
+        calculateInventoryConsumption(cart)
+
       // Calcular subtotal y descuento en céntimos.
       const subtotalCents = saleItems.reduce(
         (sum, item) =>
@@ -210,6 +306,9 @@ function POS({ products, onUpdateSafetyChange = NOOP }) {
         date: new Date().toISOString(),
 
         items: saleItems,
+
+        // Fotografía del consumo en el momento de la venta.
+        inventoryConsumption,
 
         subtotal: subtotalCents / 100,
         isSeniorCustomer,
@@ -245,7 +344,9 @@ function POS({ products, onUpdateSafetyChange = NOOP }) {
 
       if (
         !Array.isArray(verifiedSales) ||
-        !verifiedSales.some((savedSale) => savedSale.id === sale.id)
+        !verifiedSales.some(
+          (savedSale) => savedSale.id === sale.id
+        )
       ) {
         throw new Error('La venta no aparece en el almacenamiento.')
       }
@@ -257,6 +358,7 @@ function POS({ products, onUpdateSafetyChange = NOOP }) {
       setShowCheckout(false)
 
       console.log('Venta guardada correctamente:', sale)
+      console.log('Consumo de ingredientes:', inventoryConsumption)
       console.log('Identificador del dispositivo:', deviceId)
       console.log('Total de ventas guardadas:', updatedSales.length)
 
@@ -290,14 +392,8 @@ function POS({ products, onUpdateSafetyChange = NOOP }) {
 
   return (
     <div className="min-h-[calc(100vh-80px)]">
-
-      {/* RESPONSIVE: minmax(0,1fr) evita que la primera columna
-          crezca más que el espacio disponible. */}
       <main className="grid min-h-[calc(100vh-80px)] min-w-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_390px]">
-
-        {/* RESPONSIVE: min-w-0 permite encoger el contenido. */}
         <section className="min-w-0 p-5 lg:p-8">
-
           <div className="mb-7">
             <h2 className="text-2xl font-bold">
               Punto de venta
@@ -319,7 +415,6 @@ function POS({ products, onUpdateSafetyChange = NOOP }) {
             onAdd={addToCart}
             cart={cart}
           />
-
         </section>
 
         <OrderPanel
@@ -330,7 +425,6 @@ function POS({ products, onUpdateSafetyChange = NOOP }) {
           onClear={clearCart}
           onCheckout={handleCheckout}
         />
-
       </main>
 
       {/* Ventana de cobro */}
@@ -357,7 +451,6 @@ function POS({ products, onUpdateSafetyChange = NOOP }) {
           {storageError}
         </div>
       )}
-
     </div>
   )
 }

@@ -8,6 +8,7 @@ import Topbar from './components/layout/Topbar'
 import POS from './pages/POS'
 import Sales from './pages/Sales'
 import Products from './pages/Products'
+import Inventory from './pages/Inventory'
 
 import { products as initialProducts } from './data/products'
 import { syncPendingSales } from './services/syncService'
@@ -778,6 +779,9 @@ function App() {
           onProductsChange={handleProductsChange}
         />
       )}
+        {activePage === 'inventory' && (
+    <Inventory products={visibleProducts} />
+  )}
     </div>
   )
 }

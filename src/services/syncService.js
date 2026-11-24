@@ -98,6 +98,7 @@ function getServerSaleFields(serverSale) {
     'paymentDetails',
     'status',
     'cancelledAt',
+    'inventoryConsumption'
   ]
 
   const result = {}
