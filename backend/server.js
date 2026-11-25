@@ -34,6 +34,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/sales", requireAuth, saleRoutes);
 app.use("/api/products", requireAuth, productRoutes);
 app.use("/api/categories", requireAuth, categoryRoutes);
+app.use("/api/inventory", requireAuth, inventoryRoutes);
 
 // Puerto del servidor
 const PORT = process.env.PORT || 5000;
