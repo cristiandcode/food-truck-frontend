@@ -935,7 +935,7 @@ function Inventory({ products = [] }) {
                 'Esperando los datos del dispositivo que contiene el inventario original.'}
 
               {syncStatus === 'synced' &&
-                'Ingredientes y recetas sincronizados con MongoDB.'}
+                'Ingredientes y recetas sincronizados con el servidor.'}
 
               {syncStatus === 'pending' &&
                 'Hay cambios guardados localmente pendientes de sincronización.'}
