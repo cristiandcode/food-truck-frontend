@@ -10,6 +10,7 @@ const saleRoutes = require("./src/routes/saleRoutes");
 const productRoutes = require("./src/routes/productRoutes");
 const categoryRoutes = require("./src/routes/categoryRoutes");
 const authRoutes = require("./src/routes/authRoutes");
+const inventoryRoutes = require("./src/routes/inventoryRoutes");
 
 const { requireAuth } = require("./src/middleware/auth");
 

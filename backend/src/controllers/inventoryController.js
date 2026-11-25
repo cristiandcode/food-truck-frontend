@@ -3,31 +3,39 @@ const Inventory = require("../models/Inventory");
 
 const INVENTORY_KEY = "main";
 
+// Formato común de respuesta.
+const formatInventory = (inventory) => ({
+  ingredients: inventory.ingredients,
+  recipes: inventory.recipes || {},
+  revision: inventory.revision,
+  initialized: inventory.initialized,
+  updatedAt: inventory.updatedAt,
+});
+
 // Obtener el inventario compartido.
 const getInventory = async (req, res) => {
   try {
-    let inventory = await Inventory.findOne({
-      inventoryKey: INVENTORY_KEY,
-    });
-
-    // Si todavía no existe, creamos un inventario vacío.
-    if (!inventory) {
-      inventory = await Inventory.create({
-        inventoryKey: INVENTORY_KEY,
-        ingredients: [],
-        recipes: {},
-        revision: 0,
-      });
-    }
+    const inventory = await Inventory.findOneAndUpdate(
+      { inventoryKey: INVENTORY_KEY },
+      {
+        $setOnInsert: {
+          inventoryKey: INVENTORY_KEY,
+          ingredients: [],
+          recipes: {},
+          revision: 0,
+          initialized: false,
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true,
+      }
+    );
 
     return res.json({
       success: true,
-      inventory: {
-        ingredients: inventory.ingredients,
-        recipes: inventory.recipes || {},
-        revision: inventory.revision,
-        updatedAt: inventory.updatedAt,
-      },
+      inventory: formatInventory(inventory),
     });
   } catch (error) {
     console.error("Error obteniendo inventario:", error.message);
@@ -40,88 +48,82 @@ const getInventory = async (req, res) => {
 };
 
 // Inicializar el inventario por primera vez.
-// Solo permite guardar datos si el inventario todavía está vacío.
 const initializeInventory = async (req, res) => {
   try {
     const { ingredients, recipes } = req.body;
 
-    if (!Array.isArray(ingredients) || !recipes || typeof recipes !== "object" || Array.isArray(recipes)) {
+    if (
+      !Array.isArray(ingredients) ||
+      !recipes ||
+      typeof recipes !== "object" ||
+      Array.isArray(recipes)
+    ) {
       return res.status(400).json({
         success: false,
         message: "Los datos iniciales del inventario no son válidos.",
       });
     }
 
-    let inventory = await Inventory.findOne({
-      inventoryKey: INVENTORY_KEY,
-    });
-
-    if (!inventory) {
-      try {
-        inventory = await Inventory.create({
+    // Garantizamos que exista el documento.
+    await Inventory.findOneAndUpdate(
+      { inventoryKey: INVENTORY_KEY },
+      {
+        $setOnInsert: {
           inventoryKey: INVENTORY_KEY,
+          ingredients: [],
+          recipes: {},
+          revision: 0,
+          initialized: false,
+        },
+      },
+      {
+        upsert: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+
+    // Solo un dispositivo puede realizar la inicialización.
+    // Una vez inicializado, nunca vuelve a aceptar una migración.
+    const inventory = await Inventory.findOneAndUpdate(
+      {
+        inventoryKey: INVENTORY_KEY,
+        initialized: false,
+      },
+      {
+        $set: {
           ingredients,
           recipes,
-          revision: 1,
-        });
-
-        return res.status(201).json({
-          success: true,
           initialized: true,
-          inventory: {
-            ingredients: inventory.ingredients,
-            recipes: inventory.recipes || {},
-            revision: inventory.revision,
-            updatedAt: inventory.updatedAt,
-          },
-        });
-      } catch (error) {
-        // Puede ocurrir si dos dispositivos intentan inicializar
-        // el inventario al mismo tiempo.
-        if (error.code !== 11000) {
-          throw error;
-        }
-
-        inventory = await Inventory.findOne({
-          inventoryKey: INVENTORY_KEY,
-        });
+        },
+        $inc: {
+          revision: 1,
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
       }
-    }
+    );
 
-    const hasServerData =
-      inventory.ingredients.length > 0 ||
-      Object.keys(inventory.recipes || {}).length > 0;
+    if (!inventory) {
+      const currentInventory = await Inventory.findOne({
+        inventoryKey: INVENTORY_KEY,
+      });
 
-    if (hasServerData) {
       return res.status(409).json({
         success: false,
         initialized: false,
-        message: "El inventario ya contiene datos.",
-        inventory: {
-          ingredients: inventory.ingredients,
-          recipes: inventory.recipes || {},
-          revision: inventory.revision,
-          updatedAt: inventory.updatedAt,
-        },
+        message: "El inventario ya fue inicializado.",
+        inventory: currentInventory
+          ? formatInventory(currentInventory)
+          : null,
       });
     }
 
-    // Si el servidor está vacío, permitimos la migración inicial.
-    inventory.ingredients = ingredients;
-    inventory.recipes = recipes;
-    inventory.revision += 1;
-
-    await inventory.save();
-
-    return res.json({
+    return res.status(201).json({
       success: true,
       initialized: true,
-      inventory: {
-        ingredients: inventory.ingredients,
-        recipes: inventory.recipes || {},
-        revision: inventory.revision,
-        updatedAt: inventory.updatedAt,
-      },
+      inventory: formatInventory(inventory),
     });
   } catch (error) {
     console.error("Error inicializando inventario:", error.message);
@@ -133,7 +135,7 @@ const initializeInventory = async (req, res) => {
   }
 };
 
-// Guardar cambios del inventario con control de versiones.
+// Guardar cambios con control de versiones.
 const updateInventory = async (req, res) => {
   try {
     const { ingredients, recipes, revision } = req.body;
@@ -154,6 +156,7 @@ const updateInventory = async (req, res) => {
     const inventory = await Inventory.findOneAndUpdate(
       {
         inventoryKey: INVENTORY_KEY,
+        initialized: true,
         revision,
       },
       {
@@ -179,26 +182,16 @@ const updateInventory = async (req, res) => {
       return res.status(409).json({
         success: false,
         conflict: true,
-        message: "El inventario fue modificado desde otro dispositivo.",
+        message: "El inventario fue modificado desde otro dispositivo o todavía no fue inicializado.",
         inventory: currentInventory
-          ? {
-              ingredients: currentInventory.ingredients,
-              recipes: currentInventory.recipes || {},
-              revision: currentInventory.revision,
-              updatedAt: currentInventory.updatedAt,
-            }
+          ? formatInventory(currentInventory)
           : null,
       });
     }
 
     return res.json({
       success: true,
-      inventory: {
-        ingredients: inventory.ingredients,
-        recipes: inventory.recipes || {},
-        revision: inventory.revision,
-        updatedAt: inventory.updatedAt,
-      },
+      inventory: formatInventory(inventory),
     });
   } catch (error) {
     console.error("Error actualizando inventario:", error.message);

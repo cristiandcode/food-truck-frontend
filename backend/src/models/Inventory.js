@@ -28,7 +28,6 @@ const ingredientSchema = new mongoose.Schema(
 // Documento único con el inventario compartido de Lubinin.
 const inventorySchema = new mongoose.Schema(
   {
-    // Identificador fijo para mantener un único inventario compartido.
     inventoryKey: {
       type: String,
       required: true,
@@ -36,25 +35,27 @@ const inventorySchema = new mongoose.Schema(
       default: "main",
     },
 
-    // Ingredientes disponibles.
     ingredients: {
       type: [ingredientSchema],
       default: [],
     },
 
-    // Recetas asociadas a los productos.
-    // Se conserva la estructura actual del frontend:
-    // { "productId": [{ ingredientId, quantity }] }
     recipes: {
       type: mongoose.Schema.Types.Mixed,
       default: {},
     },
 
-    // Versión para controlar modificaciones concurrentes.
     revision: {
       type: Number,
       default: 0,
       min: 0,
+    },
+
+    // Distingue un inventario nunca migrado de uno
+    // que fue inicializado y después quedó vacío.
+    initialized: {
+      type: Boolean,
+      default: false,
     },
   },
   {

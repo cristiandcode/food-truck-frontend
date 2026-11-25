@@ -1,9 +1,16 @@
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+
+import {
+  getRemoteInventory,
+  initializeRemoteInventory,
+  updateRemoteInventory,
+} from '../services/inventoryService'
 
 const INGREDIENTS_STORAGE_KEY = 'lubinin_inventory_ingredients'
 const RECIPES_STORAGE_KEY = 'lubinin_inventory_recipes'
 const SALES_STORAGE_KEY = 'lubinin_sales'
+const PENDING_INVENTORY_KEY = 'lubinin_inventory_pending_sync'
 
 function readStorage(key, fallback) {
   try {
@@ -130,6 +137,17 @@ function getPeriodRange(period, customStart, customEnd) {
   }
 }
 
+function hasInventoryData(ingredients, recipes) {
+  return (
+    (Array.isArray(ingredients) && ingredients.length > 0) ||
+    (
+      recipes &&
+      typeof recipes === 'object' &&
+      Object.keys(recipes).length > 0
+    )
+  )
+}
+
 function Inventory({ products = [] }) {
   const [ingredients, setIngredients] = useState(() =>
     readStorage(INGREDIENTS_STORAGE_KEY, [])
@@ -161,19 +179,375 @@ function Inventory({ products = [] }) {
   // Ingrediente pendiente de confirmación para eliminar.
   const [ingredientToDelete, setIngredientToDelete] = useState(null)
 
+  // Estado de sincronización del inventario.
+  const [inventoryReady, setInventoryReady] = useState(false)
+  const [syncStatus, setSyncStatus] = useState('loading')
+  const [syncTrigger, setSyncTrigger] = useState(0)
+
+  // Referencias para evitar sobrescribir datos durante la carga inicial.
+  const revisionRef = useRef(0)
+  const serverInitializedRef = useRef(false)
+  const pendingRef = useRef(null)
+  const skipNextSyncRef = useRef(false)
+  const syncInProgressRef = useRef(false)
+  const syncBlockedRef = useRef(false)
+
+  // Cargar el inventario compartido al entrar en Almacén.
   useEffect(() => {
+    let cancelled = false
+
+    async function loadInventory() {
+      const localIngredients = readStorage(
+        INGREDIENTS_STORAGE_KEY,
+        []
+      )
+
+      const localRecipes = readStorage(
+        RECIPES_STORAGE_KEY,
+        {}
+      )
+
+      const savedPending = readStorage(
+        PENDING_INVENTORY_KEY,
+        null
+      )
+
+      if (savedPending) {
+        pendingRef.current = savedPending
+      }
+
+      try {
+        const remote = await getRemoteInventory()
+
+        if (cancelled) return
+
+        revisionRef.current = Number(remote.revision) || 0
+        serverInitializedRef.current = remote.initialized === true
+
+        // El servidor ya tiene un inventario inicializado.
+        if (remote.initialized === true) {
+          // Si hay cambios locales pendientes, los conservamos.
+          // No reemplazamos esos cambios con la versión remota.
+          if (savedPending) {
+            skipNextSyncRef.current = true
+
+            setIngredients(
+              Array.isArray(savedPending.ingredients)
+                ? savedPending.ingredients
+                : localIngredients
+            )
+
+            setRecipes(
+              savedPending.recipes &&
+              typeof savedPending.recipes === 'object'
+                ? savedPending.recipes
+                : localRecipes
+            )
+
+            setSyncStatus('pending')
+            setInventoryReady(true)
+            setSyncTrigger((current) => current + 1)
+
+            return
+          }
+
+          // Sin cambios pendientes, MongoDB es la fuente principal.
+          const remoteIngredients = Array.isArray(remote.ingredients)
+            ? remote.ingredients
+            : []
+
+          const remoteRecipes =
+            remote.recipes &&
+            typeof remote.recipes === 'object'
+              ? remote.recipes
+              : {}
+
+          skipNextSyncRef.current = true
+
+          localStorage.setItem(
+            INGREDIENTS_STORAGE_KEY,
+            JSON.stringify(remoteIngredients)
+          )
+
+          localStorage.setItem(
+            RECIPES_STORAGE_KEY,
+            JSON.stringify(remoteRecipes)
+          )
+
+          setIngredients(remoteIngredients)
+          setRecipes(remoteRecipes)
+          setSyncStatus('synced')
+          setInventoryReady(true)
+
+          return
+        }
+
+        // MongoDB todavía no fue inicializado.
+        // Si hay datos locales, intentamos migrarlos.
+        if (
+          savedPending ||
+          hasInventoryData(localIngredients, localRecipes)
+        ) {
+          if (!savedPending) {
+            pendingRef.current = {
+              ingredients: localIngredients,
+              recipes: localRecipes,
+              baseRevision: 0,
+            }
+
+            localStorage.setItem(
+              PENDING_INVENTORY_KEY,
+              JSON.stringify(pendingRef.current)
+            )
+          }
+
+          skipNextSyncRef.current = true
+
+          setIngredients(
+            savedPending?.ingredients || localIngredients
+          )
+
+          setRecipes(
+            savedPending?.recipes || localRecipes
+          )
+
+          setSyncStatus('pending')
+          setInventoryReady(true)
+          setSyncTrigger((current) => current + 1)
+
+          return
+        }
+
+        // Un dispositivo nuevo y vacío no inicializa el servidor.
+        // Espera a que el dispositivo original aporte sus datos.
+        skipNextSyncRef.current = true
+        setSyncStatus('waiting')
+        setInventoryReady(true)
+      } catch (error) {
+        if (cancelled) return
+
+        console.error(
+          'Error cargando inventario compartido:',
+          error.message
+        )
+
+        // Si hay datos locales, se conservan para trabajar sin conexión.
+        if (
+          savedPending ||
+          hasInventoryData(localIngredients, localRecipes)
+        ) {
+          if (!savedPending) {
+            pendingRef.current = {
+              ingredients: localIngredients,
+              recipes: localRecipes,
+              baseRevision: 0,
+            }
+
+            localStorage.setItem(
+              PENDING_INVENTORY_KEY,
+              JSON.stringify(pendingRef.current)
+            )
+          }
+
+          skipNextSyncRef.current = true
+
+          setIngredients(
+            savedPending?.ingredients || localIngredients
+          )
+
+          setRecipes(
+            savedPending?.recipes || localRecipes
+          )
+        } else {
+          skipNextSyncRef.current = true
+        }
+
+        setSyncStatus('offline')
+        setInventoryReady(true)
+      }
+    }
+
+    loadInventory()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Guardar una copia local y preparar los cambios para sincronizar.
+  useEffect(() => {
+    if (!inventoryReady) return
+
     localStorage.setItem(
       INGREDIENTS_STORAGE_KEY,
       JSON.stringify(ingredients)
     )
-  }, [ingredients])
 
-  useEffect(() => {
     localStorage.setItem(
       RECIPES_STORAGE_KEY,
       JSON.stringify(recipes)
     )
-  }, [recipes])
+
+    // La carga inicial no debe generar una modificación nueva.
+    if (skipNextSyncRef.current) {
+      skipNextSyncRef.current = false
+      return
+    }
+
+    const existingPending = pendingRef.current
+
+    const pending = {
+      ingredients,
+      recipes,
+      baseRevision: existingPending
+        ? existingPending.baseRevision
+        : revisionRef.current,
+    }
+
+    pendingRef.current = pending
+
+    localStorage.setItem(
+      PENDING_INVENTORY_KEY,
+      JSON.stringify(pending)
+    )
+
+    setSyncStatus('pending')
+    setSyncTrigger((current) => current + 1)
+  }, [ingredients, recipes, inventoryReady])
+
+  // Sincronizar cambios pendientes con MongoDB.
+  useEffect(() => {
+    if (!inventoryReady || syncTrigger === 0) return
+    if (!pendingRef.current) return
+    if (syncBlockedRef.current) return
+
+    let cancelled = false
+
+    const timeout = window.setTimeout(async () => {
+      if (syncInProgressRef.current) return
+
+      const pending = pendingRef.current
+
+      if (!pending) return
+
+      syncInProgressRef.current = true
+
+      try {
+        let remote
+
+        if (!serverInitializedRef.current) {
+          // Primera migración: solo se intenta una vez si hay datos.
+          if (!hasInventoryData(
+            pending.ingredients,
+            pending.recipes
+          )) {
+            setSyncStatus('waiting')
+            return
+          }
+
+          remote = await initializeRemoteInventory(
+            pending.ingredients,
+            pending.recipes
+          )
+
+          serverInitializedRef.current = true
+        } else {
+          remote = await updateRemoteInventory(
+            pending.ingredients,
+            pending.recipes,
+            pending.baseRevision
+          )
+        }
+
+        if (cancelled) return
+
+        revisionRef.current = Number(remote.revision) || 0
+
+        const currentPending = pendingRef.current
+
+        const sameSnapshot =
+          currentPending &&
+          JSON.stringify(currentPending.ingredients) ===
+            JSON.stringify(pending.ingredients) &&
+          JSON.stringify(currentPending.recipes) ===
+            JSON.stringify(pending.recipes)
+
+        if (sameSnapshot) {
+          pendingRef.current = null
+
+          localStorage.removeItem(PENDING_INVENTORY_KEY)
+
+          setSyncStatus('synced')
+        } else if (currentPending) {
+          // Hubo cambios mientras se enviaba la petición.
+          // Conservamos los cambios nuevos y usamos la nueva revisión.
+          const updatedPending = {
+            ...currentPending,
+            baseRevision: revisionRef.current,
+          }
+
+          pendingRef.current = updatedPending
+
+          localStorage.setItem(
+            PENDING_INVENTORY_KEY,
+            JSON.stringify(updatedPending)
+          )
+
+          setSyncStatus('pending')
+          setSyncTrigger((current) => current + 1)
+        }
+      } catch (error) {
+        if (cancelled) return
+
+        console.error(
+          'Error sincronizando inventario:',
+          error.message
+        )
+
+        if (error.status === 409 || error.conflict) {
+          // No reemplazamos los datos locales ni los del servidor.
+          // El usuario debe revisar el conflicto antes de continuar.
+          syncBlockedRef.current = true
+          setSyncStatus('conflict')
+        } else {
+          setSyncStatus('offline')
+        }
+      } finally {
+        syncInProgressRef.current = false
+      }
+    }, 500)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeout)
+    }
+  }, [inventoryReady, syncTrigger])
+
+  // Reintentar cuando vuelve la conexión.
+  useEffect(() => {
+    function handleOnline() {
+      if (!pendingRef.current) return
+
+      syncBlockedRef.current = false
+      setSyncStatus('pending')
+      setSyncTrigger((current) => current + 1)
+    }
+
+    window.addEventListener('online', handleOnline)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+    }
+  }, [])
+
+  // Reintentar manualmente los cambios pendientes.
+  function retryInventorySync() {
+    if (!pendingRef.current) return
+
+    syncBlockedRef.current = false
+    setSyncStatus('pending')
+    setSyncTrigger((current) => current + 1)
+  }
 
   // Ocultar automáticamente los avisos.
   useEffect(() => {
@@ -543,6 +917,49 @@ function Inventory({ products = [] }) {
         <p className="mt-1 text-sm text-gray-500">
           Controlá las unidades vendidas y los ingredientes consumidos en Lubinin.
         </p>
+      </div>
+
+      {/* ESTADO DE SINCRONIZACIÓN */}
+      <div className="mb-6 rounded-xl border border-[#e8e4da] bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-[#26332d]">
+              Sincronización del almacén
+            </p>
+
+            <p className="mt-1 text-sm text-gray-500">
+              {syncStatus === 'loading' &&
+                'Conectando con el inventario compartido...'}
+
+              {syncStatus === 'waiting' &&
+                'Esperando los datos del dispositivo que contiene el inventario original.'}
+
+              {syncStatus === 'synced' &&
+                'Ingredientes y recetas sincronizados con MongoDB.'}
+
+              {syncStatus === 'pending' &&
+                'Hay cambios guardados localmente pendientes de sincronización.'}
+
+              {syncStatus === 'offline' &&
+                'Sin conexión con el servidor. Podés seguir trabajando; los cambios quedan guardados en este dispositivo.'}
+
+              {syncStatus === 'conflict' &&
+                'Otro dispositivo modificó el inventario. Tus cambios locales se conservaron, pero la sincronización está pausada para evitar sobrescribir datos.'}
+            </p>
+          </div>
+
+          {(syncStatus === 'offline' ||
+            syncStatus === 'pending' ||
+            syncStatus === 'conflict') && (
+            <button
+              type="button"
+              onClick={retryInventorySync}
+              className="rounded-xl border border-[#ddd8cc] px-4 py-2 text-sm font-semibold text-[#53675a] hover:bg-[#f8f7f3]"
+            >
+              ↻ Reintentar
+            </button>
+          )}
+        </div>
       </div>
 
       {/* AVISO VISUAL */}
