@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from 'react'
 
 import {
@@ -6,6 +5,8 @@ import {
   initializeRemoteInventory,
   updateRemoteInventory,
 } from '../services/inventoryService'
+
+import { getRemoteSales } from '../services/salesService'
 
 const INGREDIENTS_STORAGE_KEY = 'lubinin_inventory_ingredients'
 const RECIPES_STORAGE_KEY = 'lubinin_inventory_recipes'
@@ -19,6 +20,93 @@ function readStorage(key, fallback) {
   } catch {
     return fallback
   }
+}
+
+// Combinar ventas locales y remotas sin duplicar operaciones.
+function mergeSales(localSales, remoteSales) {
+  const salesMap = new Map()
+
+  // Primero incorporamos las ventas locales.
+  // Así no perdemos operaciones que todavía no llegaron al servidor.
+  localSales.forEach((sale) => {
+    const saleId = sale.id || sale.clientSaleId
+
+    if (!saleId) return
+
+    const normalizedId = String(saleId)
+
+    salesMap.set(normalizedId, {
+      ...sale,
+      id: normalizedId,
+    })
+  })
+
+  // Después incorporamos las ventas confirmadas por MongoDB.
+  remoteSales.forEach((remoteSale) => {
+    const saleId = remoteSale.clientSaleId || remoteSale.id
+
+    if (!saleId) return
+
+    const normalizedId = String(saleId)
+    const localSale = salesMap.get(normalizedId)
+
+    // Si la venta no existía localmente, se incorpora directamente.
+    if (!localSale) {
+      salesMap.set(normalizedId, {
+        ...remoteSale,
+        id: normalizedId,
+        syncStatus: 'synced',
+      })
+
+      return
+    }
+
+    const localWasCancelled =
+      localSale.status === 'cancelled'
+
+    const remoteIsCancelled =
+      remoteSale.status === 'cancelled'
+
+    // MongoDB es la fuente de los importes, descuentos,
+    // productos y datos definitivos de la venta.
+    const mergedSale = {
+      ...localSale,
+      ...remoteSale,
+
+      // Conservamos el identificador local.
+      id: normalizedId,
+
+      // Si la venta existe en MongoDB, está sincronizada.
+      syncStatus: 'synced',
+
+      // Conservamos los datos de seguimiento local.
+      syncAttempts: localSale.syncAttempts || 0,
+      lastSyncAttempt: localSale.lastSyncAttempt || null,
+      lastSyncError: null,
+    }
+
+    // Una cancelación local pendiente nunca debe desaparecer
+    // porque MongoDB todavía devuelva la venta como activa.
+    if (localWasCancelled) {
+      mergedSale.status = 'cancelled'
+      mergedSale.cancelledAt =
+        localSale.cancelledAt || remoteSale.cancelledAt || null
+
+      mergedSale.cancelSynced =
+        remoteIsCancelled || localSale.cancelSynced === true
+    } else if (remoteIsCancelled) {
+      // Si MongoDB ya tiene la venta cancelada, respetamos ese estado.
+      mergedSale.status = 'cancelled'
+      mergedSale.cancelledAt = remoteSale.cancelledAt
+      mergedSale.cancelSynced = true
+    } else {
+      mergedSale.status = remoteSale.status || 'completed'
+    }
+
+    salesMap.set(normalizedId, mergedSale)
+  })
+
+  return Array.from(salesMap.values())
 }
 
 function getTodayString() {
@@ -560,10 +648,44 @@ function Inventory({ products = [] }) {
     return () => window.clearTimeout(timeout)
   }, [notice])
 
-  // Actualizar las ventas al entrar nuevamente en Almacén.
-  function refreshSales() {
+  // Actualizar las ventas locales y consultar las ventas de MongoDB.
+  async function refreshSales() {
     const savedSales = readStorage(SALES_STORAGE_KEY, [])
-    setSales(Array.isArray(savedSales) ? savedSales : [])
+    const localSales = Array.isArray(savedSales) ? savedSales : []
+
+    // Mostramos inmediatamente las ventas locales.
+    // Si falla la conexión, estos datos siguen disponibles.
+    setSales(localSales)
+
+    try {
+      const remoteSales = await getRemoteSales()
+
+      const validRemoteSales = Array.isArray(remoteSales)
+        ? remoteSales
+        : []
+
+      // Unificar ventas locales y remotas sin duplicados.
+      const unifiedSales = mergeSales(
+        localSales,
+        validRemoteSales
+      )
+
+      setSales(unifiedSales)
+
+      // Guardar la información unificada como copia local.
+      localStorage.setItem(
+        SALES_STORAGE_KEY,
+        JSON.stringify(unifiedSales)
+      )
+    } catch (error) {
+      console.error(
+        'Error actualizando las ventas del almacén:',
+        error.message
+      )
+
+      // Si el servidor no responde, mantenemos las ventas locales.
+      setSales(localSales)
+    }
   }
 
   useEffect(() => {
