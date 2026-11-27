@@ -22,14 +22,10 @@ function SaleSuccessModal({ sale, onNewSale }) {
   const paymentLabel =
     sale.paymentMethod === 'cash' ? 'Efectivo' : 'Tarjeta'
 
-  // Número de venta acompañado del identificador del dispositivo.
-  // Compatibilidad con ventas antiguas que no tienen deviceId.
   const formattedSaleNumber = `#${String(sale.saleNumber).padStart(4, '0')}${
     sale.deviceId ? ` · ${sale.deviceId}` : ''
   }`
 
-  // Subtotal antes de aplicar descuentos.
-  // Compatibilidad con ventas antiguas que no tienen este campo.
   const calculatedSubtotal = sale.items.reduce(
     (sum, item) =>
       sum + Number(item.price || 0) * Number(item.quantity || 0),
@@ -41,8 +37,6 @@ function SaleSuccessModal({ sale, onNewSale }) {
       ? Number(sale.subtotal)
       : calculatedSubtotal
 
-  // Descuento total de la venta.
-  // Si el campo no existe, se intenta recuperar desde los artículos.
   const calculatedDiscount = sale.items.reduce(
     (sum, item) => sum + Number(item.discountAmount || 0),
     0
@@ -61,7 +55,7 @@ function SaleSuccessModal({ sale, onNewSale }) {
 
   return (
     <>
-      {/* Estilos exclusivos de impresión */}
+      {/* ESTILOS DE IMPRESIÓN */}
       {createPortal(
         <>
           <style>
@@ -232,133 +226,195 @@ function SaleSuccessModal({ sale, onNewSale }) {
         document.body
       )}
 
-      {/* Ventana de confirmación de venta */}
-      <div className="fixed inset-0 z-[150] flex items-center justify-center overflow-y-auto bg-black/60 p-4">
-        <div className="relative w-full max-w-md rounded-2xl bg-white p-7 text-center shadow-2xl">
+      {/* VENTANA DE CONFIRMACIÓN */}
+      <div className="fixed inset-0 z-[150] flex items-center justify-center overflow-y-auto overscroll-contain bg-[#14251F]/75 p-3 backdrop-blur-sm sm:p-6">
 
-          {/* Botón para cerrar la ventana */}
-          <button
-            type="button"
-            onClick={onNewSale}
-            aria-label="Cerrar ventana"
-            className="no-print absolute right-4 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-4xl font-bold leading-none text-red-600 transition hover:bg-red-600 hover:text-white active:scale-95"
-          >
-            ×
-          </button>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sale-success-title"
+          className="relative my-auto max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-[28px] border border-[#E9E1D2] bg-[#FFFEFA] shadow-[0_25px_80px_rgba(0,0,0,0.28)] sm:max-h-[calc(100dvh-3rem)]"
+        >
 
-          {/* Confirmación */}
-          <div className="no-print">
-            <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-4xl text-green-700">
-              ✓
-            </div>
+          {/* FRANJA DECORATIVA */}
+          <div className="h-2 w-full bg-gradient-to-r from-[#244C3D] via-[#C18B45] to-[#244C3D]" />
 
-            <h2 className="text-2xl font-extrabold text-[#26332d]">
-              ¡Venta realizada!
-            </h2>
-
-            <p className="mt-2 text-sm text-[#89877e]">
-              La venta se guardó correctamente.
-            </p>
+          {/* CIERRE SIEMPRE VISIBLE AL DESPLAZARSE */}
+          <div className="sticky top-0 z-30 flex justify-end bg-[#FFFEFA]/95 px-4 pt-3 backdrop-blur-sm sm:px-6">
+            <button
+              type="button"
+              onClick={onNewSale}
+              aria-label="Cerrar ventana"
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#F0D8D5] bg-[#FFF1EF] text-3xl font-semibold leading-none text-[#B94438] shadow-sm transition hover:bg-[#B94438] hover:text-white active:scale-90"
+            >
+              ×
+            </button>
           </div>
 
-          {/* Resumen visible en pantalla */}
-          <div className="no-print">
-            <div className="mt-6 rounded-xl bg-[#f5f3ee] p-5">
-              <p className="text-sm font-medium text-[#89877e]">
+          <div className="px-5 pb-6 pt-2 sm:px-7 sm:pb-8">
+
+            {/* CONFIRMACIÓN */}
+            <div className="text-center">
+              <div className="mx-auto mb-4 flex h-[76px] w-[76px] items-center justify-center rounded-full border-[6px] border-[#E4F0E7] bg-[#D8EADD] text-4xl font-bold text-[#286344] shadow-sm">
+                ✓
+              </div>
+
+              <p className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.2em] text-[#A87938]">
+                Operación completada
+              </p>
+
+              <h2
+                id="sale-success-title"
+                className="text-2xl font-extrabold tracking-tight text-[#233B30] sm:text-[28px]"
+              >
+                ¡Venta realizada!
+              </h2>
+
+              <p className="mt-2 text-sm text-[#88877E]">
+                La venta se guardó correctamente.
+              </p>
+            </div>
+
+            {/* NÚMERO DE VENTA */}
+            <div className="mt-6 rounded-2xl border border-[#EAE3D6] bg-[#F7F4ED] p-4 text-center">
+              <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#918B7D]">
                 Número de venta
               </p>
 
-              <p className="mt-1 text-2xl font-extrabold text-[#26332d] break-words">
+              <p className="mt-2 break-words text-lg font-extrabold text-[#344C3E] sm:text-xl">
                 {formattedSaleNumber}
               </p>
-
-              <div className="my-4 border-t border-[#e8e4da]" />
-
-              <p className="text-sm text-[#89877e]">
-                Total cobrado
-              </p>
-
-              <p className="mt-2 text-4xl font-extrabold text-[#26332d]">
-                {formatPrice(sale.total)}
-              </p>
-
-              {hasDiscount && (
-                <div className="mt-3 flex justify-between text-sm">
-                  <span className="text-[#89877e]">
-                    Descuento jubilado (5 %)
-                  </span>
-                  <span className="font-bold text-green-700">
-                    -{formatPrice(discountAmount)}
-                  </span>
-                </div>
-              )}
-
-              <div className="mt-4 flex justify-between text-sm">
-                <span className="text-[#89877e]">Método de pago</span>
-                <span className="font-bold">{paymentLabel}</span>
-              </div>
-
-              {sale.paymentMethod === 'cash' && sale.paymentDetails && (
-                <>
-                  <div className="mt-2 flex justify-between text-sm">
-                    <span className="text-[#89877e]">Recibido</span>
-                    <span className="font-semibold">
-                      {formatPrice(sale.paymentDetails.received)}
-                    </span>
-                  </div>
-
-                  <div className="mt-2 flex justify-between text-sm">
-                    <span className="text-[#89877e]">Cambio</span>
-                    <span className="font-semibold">
-                      {formatPrice(sale.paymentDetails.change)}
-                    </span>
-                  </div>
-                </>
-              )}
             </div>
 
-            <div className="mt-5 text-left">
-              <p className="mb-3 text-sm font-bold text-[#26332d]">
-                Productos vendidos
-              </p>
+            {/* TOTAL COBRADO */}
+            <div className="mt-4 overflow-hidden rounded-2xl bg-[#244638] shadow-lg shadow-[#244638]/15">
+              <div className="px-5 py-5 text-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D4E1D8]">
+                  Total cobrado
+                </p>
 
-              <div className="max-h-36 space-y-2 overflow-y-auto">
+                <p className="mt-2 text-4xl font-black tracking-tight text-white sm:text-[42px]">
+                  {formatPrice(sale.total)}
+                </p>
+
+                {hasDiscount && (
+                  <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-[#DDEBDD]">
+                    <span>✓</span>
+                    <span>
+                      Descuento jubilado: -{formatPrice(discountAmount)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 border-t border-white/15 bg-black/10">
+                <div className="px-3 py-3 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#C3D2C7]">
+                    Método de pago
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-white">
+                    {paymentLabel}
+                  </p>
+                </div>
+
+                {sale.paymentMethod === 'cash' && sale.paymentDetails ? (
+                  <div className="border-l border-white/15 px-3 py-3 text-center">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-[#C3D2C7]">
+                      Cambio
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-white">
+                      {formatPrice(sale.paymentDetails.change)}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="border-l border-white/15 px-3 py-3 text-center">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-[#C3D2C7]">
+                      Estado
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-white">
+                      Completado
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* DETALLE DEL EFECTIVO */}
+            {sale.paymentMethod === 'cash' && sale.paymentDetails && (
+              <div className="mt-3 flex items-center justify-between rounded-xl border border-[#EAE3D6] bg-white px-4 py-3 text-sm">
+                <span className="text-[#89877E]">
+                  Importe recibido
+                </span>
+                <span className="font-bold text-[#344C3E]">
+                  {formatPrice(sale.paymentDetails.received)}
+                </span>
+              </div>
+            )}
+
+            {/* PRODUCTOS VENDIDOS */}
+            <div className="mt-6">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-extrabold text-[#304638]">
+                  Productos vendidos
+                </h3>
+
+                <span className="rounded-full bg-[#F1EBDD] px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#94733E]">
+                  {sale.items.reduce(
+                    (sum, item) => sum + Number(item.quantity || 0),
+                    0
+                  )} unidades
+                </span>
+              </div>
+
+              <div className="space-y-2">
                 {sale.items.map((item, index) => (
                   <div
                     key={`${item.id}-${index}`}
-                    className="flex justify-between gap-3 text-sm"
+                    className="flex items-center justify-between gap-3 rounded-xl border border-[#EEE9DF] bg-white px-4 py-3"
                   >
-                    <span className="text-[#66685f]">
-                      {item.quantity} × {item.name}
-                    </span>
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-bold text-[#344638]">
+                        {item.name}
+                      </p>
 
-                    <span className="shrink-0 font-semibold">
+                      <p className="mt-1 text-xs text-[#969287]">
+                        {item.quantity} × {formatPrice(item.price)}
+                      </p>
+                    </div>
+
+                    <p className="shrink-0 text-sm font-extrabold text-[#344638]">
                       {formatPrice(item.price * item.quantity)}
-                    </span>
+                    </p>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Imprimir */}
+            {/* BOTÓN IMPRIMIR */}
             <button
               type="button"
               onClick={handlePrint}
-              className="mt-7 w-full rounded-xl border-2 border-[#c18b45] py-4 font-bold text-[#a97735] transition hover:bg-[#faf5ec] active:scale-[0.99]"
+              className="mt-7 flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-[#C18B45] bg-[#FFFDF8] px-4 py-4 text-sm font-extrabold tracking-wide text-[#A97735] transition hover:bg-[#F8F0E2] active:scale-[0.98]"
             >
-              🖨️ IMPRIMIR TICKET
+              <span className="text-xl">🖨️</span>
+              IMPRIMIR TICKET
             </button>
 
-            {/* Nueva venta */}
+            {/* BOTÓN NUEVA VENTA */}
             <button
               type="button"
               onClick={onNewSale}
-              className="mt-3 w-full rounded-xl bg-[#c18b45] py-4 font-bold text-white transition hover:bg-[#a97735] active:scale-[0.99]"
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#244638] px-4 py-4 text-sm font-extrabold tracking-wide text-white shadow-lg shadow-[#244638]/15 transition hover:bg-[#315D49] active:scale-[0.98]"
             >
+              <span>+</span>
               NUEVA VENTA
             </button>
-          </div>
 
+            <p className="mt-5 text-center text-[10px] font-medium tracking-wide text-[#AAA496]">
+              FOOD TRUCK LUBININ · GRACIAS POR TU COMPRA
+            </p>
+
+          </div>
         </div>
       </div>
     </>
